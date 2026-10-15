@@ -1,0 +1,107 @@
+//
+//  AccountMenuResponse.swift
+//  YT Music
+//
+//
+
+import Foundation
+
+struct AccountMenuResponse: Decodable {
+    let actions: [Action]?
+
+    struct Action: Decodable {
+        let openPopupAction: OpenPopup?
+    }
+
+    struct OpenPopup: Decodable {
+        let popup: Popup?
+    }
+
+    struct Popup: Decodable {
+        let multiPageMenuRenderer: MultiPageMenu?
+    }
+
+    struct MultiPageMenu: Decodable {
+        let header: Header?
+        let sections: [MenuSection]?
+    }
+
+    struct MenuSection: Decodable {
+        let multiPageMenuSectionRenderer: MenuSectionRenderer?
+    }
+
+    struct MenuSectionRenderer: Decodable {
+        let items: [MenuItem]?
+    }
+
+    struct MenuItem: Decodable {
+        let compactLinkRenderer: CompactLinkRenderer?
+    }
+
+    struct CompactLinkRenderer: Decodable {
+        let navigationEndpoint: NavigationEndpoint?
+    }
+
+    struct Header: Decodable {
+        let activeAccountHeaderRenderer: ActiveAccount?
+    }
+
+    struct ActiveAccount: Decodable {
+        let accountName: InnerTubeText?
+        let email: InnerTubeText?
+        let channelHandle: InnerTubeText?
+        let accountPhoto: Photo?
+    }
+
+    struct Photo: Decodable {
+        let thumbnails: [Thumbnail]?
+
+        struct Thumbnail: Decodable {
+            let url: String
+            let width: Int?
+            let height: Int?
+        }
+    }
+}
+
+nonisolated enum AccountInfoParser {
+    static func parse(_ response: AccountMenuResponse) -> AccountInfo? {
+        let account = response.actions?
+            .compactMap { $0.openPopupAction?.popup?.multiPageMenuRenderer?.header?.activeAccountHeaderRenderer }
+            .first
+
+        guard let account else { return nil }
+
+        let name = account.accountName?.text ?? ""
+        guard !name.isEmpty else { return nil }
+
+        let handle = firstNonEmpty(account.channelHandle?.text, account.email?.text)
+
+        let avatarURL = (account.accountPhoto?.thumbnails ?? [])
+            .max { ($0.width ?? 0) < ($1.width ?? 0) }
+            .flatMap { URL(string: $0.url) }
+
+        var channelId: String? = nil
+        if let actions = response.actions {
+            outer: for action in actions {
+                guard let sections = action.openPopupAction?.popup?.multiPageMenuRenderer?.sections else { continue }
+                for section in sections {
+                    guard let items = section.multiPageMenuSectionRenderer?.items else { continue }
+                    for item in items {
+                        if let endpoint = item.compactLinkRenderer?.navigationEndpoint?.browseEndpoint,
+                           endpoint.pageType == "MUSIC_PAGE_TYPE_USER_CHANNEL" || (endpoint.browseId?.hasPrefix("UC") == true) {
+                            channelId = endpoint.browseId
+                            break outer
+                        }
+                    }
+                }
+            }
+        }
+
+        return AccountInfo(name: name, handle: handle, avatarURL: avatarURL, channelId: channelId)
+    }
+
+    private static func firstNonEmpty(_ values: String?...) -> String {
+        values.compactMap { $0 }.first { !$0.isEmpty } ?? ""
+    }
+}

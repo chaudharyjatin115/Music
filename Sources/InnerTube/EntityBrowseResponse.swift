@@ -1,0 +1,255 @@
+//
+//  EntityBrowseResponse.swift
+//  YT Music
+//
+//
+
+import Foundation
+
+nonisolated final class EntityBrowseResponse: Decodable, @unchecked Sendable {
+    let header: HeaderContainer?
+    let contents: EntityContents?
+    let continuationContents: ContinuationContents?
+    let onResponseReceivedActions: [ResponseAction]?
+    let onResponseReceivedCommands: [ResponseAction]?
+    let microformat: Microformat?
+    let frameworkUpdates: FrameworkUpdates?
+
+    struct FrameworkUpdates: Decodable {
+        let entityBatchUpdate: BatchUpdate?
+
+        struct BatchUpdate: Decodable {
+            let mutations: [Mutation]?
+        }
+
+        struct Mutation: Decodable {
+            let entityKey: String?
+            let payload: Payload?
+        }
+
+        struct Payload: Decodable {
+            let commandEntity: CommandEntity?
+        }
+
+        struct CommandEntity: Decodable {
+            let command: ChipCloudRenderer.Endpoint?
+        }
+
+        func reloadToken(forKey key: String) -> String? {
+            entityBatchUpdate?.mutations?
+                .first { $0.entityKey == key }?
+                .payload?.commandEntity?.command?.reloadToken
+        }
+    }
+
+    struct Microformat: Decodable {
+        let microformatDataRenderer: DataRenderer?
+
+        struct DataRenderer: Decodable {
+            let urlCanonical: String?
+        }
+    }
+
+    struct ResponseAction: Decodable {
+        let appendContinuationItemsAction: ContinuationItemsAction?
+        let reloadContinuationItemsCommand: ContinuationItemsAction?
+    }
+
+    struct ContinuationItemsAction: Decodable {
+        let continuationItems: [CarouselItem]?
+
+        var continuationToken: String? {
+            continuationItems?.reversed()
+                .compactMap(\.continuationItemRenderer?.token).first
+        }
+    }
+
+    var continuationItems: [CarouselItem] {
+        (onResponseReceivedActions ?? [])
+            .flatMap { $0.appendContinuationItemsAction?.continuationItems ?? [] }
+            + (onResponseReceivedCommands ?? [])
+            .flatMap { $0.reloadContinuationItemsCommand?.continuationItems ?? [] }
+    }
+
+    var continuationToken: String? {
+        continuationContents?.shelf?.continuationToken
+            ?? (onResponseReceivedActions ?? [])
+                .compactMap { $0.appendContinuationItemsAction?.continuationToken }
+                .first
+            ?? (onResponseReceivedCommands ?? [])
+                .compactMap { $0.reloadContinuationItemsCommand?.continuationToken }
+                .first
+    }
+
+    struct ContinuationContents: Decodable {
+        let musicShelfContinuation: MusicShelfRenderer?
+        let musicPlaylistShelfContinuation: MusicShelfRenderer?
+        let sectionListContinuation: BrowseResponse.SectionList?
+
+        var shelf: MusicShelfRenderer? {
+            musicShelfContinuation ?? musicPlaylistShelfContinuation
+        }
+    }
+
+    // MARK: Header
+
+    struct HeaderContainer: Decodable {
+        let musicDetailHeaderRenderer: DetailHeader?
+        let musicResponsiveHeaderRenderer: ResponsiveHeader?
+        let musicImmersiveHeaderRenderer: ImmersiveHeader?
+        /// Plain YouTube channels use this lighter header (no bio).
+        let musicVisualHeaderRenderer: VisualHeader?
+
+        struct VisualHeader: Decodable {
+            let title: InnerTubeText?
+            let foregroundThumbnail: ResponsiveHeader.ResponsiveThumbnail?
+            let subscriptionButton: ImmersiveHeader.SubscriptionButton?
+        }
+
+        struct DetailHeader: Decodable {
+            let title: InnerTubeText?
+            let subtitle: InnerTubeText?
+            let secondSubtitle: InnerTubeText?
+            let description: InnerTubeText?
+            let thumbnail: CroppedThumbnail?
+        }
+
+        struct ResponsiveHeader: Decodable {
+            let title: InnerTubeText?
+            let subtitle: InnerTubeText?
+            let straplineTextOne: InnerTubeText?
+            let straplineThumbnail: ThumbnailRendererWrapper?
+            let facepile: Facepile?
+            let secondSubtitle: InnerTubeText?
+            let thumbnail: ResponsiveThumbnail?
+            let description: DescriptionWrapper?
+            let buttons: [Button]?
+
+            struct Button: Decodable {
+                let toggleButtonRenderer: Toggle?
+
+                struct Toggle: Decodable {
+                    let isToggled: Bool?
+                    let defaultServiceEndpoint: ServiceEndpoint?
+                }
+
+                struct ServiceEndpoint: Decodable {
+                    let likeEndpoint: LikeEndpoint?
+
+                    struct LikeEndpoint: Decodable {
+                        let target: Target?
+                        struct Target: Decodable { let playlistId: String? }
+                    }
+                }
+            }
+
+            /// From the "Save to library" toggle (a like of the playlist); nil without it.
+            var isSaved: Bool? {
+                buttons?.lazy
+                    .compactMap(\.toggleButtonRenderer)
+                    .first { $0.defaultServiceEndpoint?.likeEndpoint?.target?.playlistId != nil }
+                    .map { $0.isToggled ?? false }
+            }
+
+            struct Facepile: Decodable {
+                let avatarStackViewModel: AvatarStack?
+
+                struct AvatarStack: Decodable {
+                    let avatars: [Avatar]?
+                    let text: Content?
+                    let rendererContext: RendererContext?
+                }
+
+                struct Avatar: Decodable {
+                    let avatarViewModel: ViewModel?
+                    struct ViewModel: Decodable { let image: Image? }
+                    struct Image: Decodable { let sources: [Source]? }
+                    struct Source: Decodable { let url: String }
+                }
+
+                struct Content: Decodable { let content: String? }
+
+                struct RendererContext: Decodable {
+                    let commandContext: CommandContext?
+                    struct CommandContext: Decodable { let onTap: OnTap? }
+                    struct OnTap: Decodable { let innertubeCommand: NavigationEndpoint? }
+                }
+            }
+
+            struct ResponsiveThumbnail: Decodable {
+                let musicThumbnailRenderer: ThumbnailRendererWrapper.MusicThumbnailRenderer?
+            }
+
+            struct DescriptionWrapper: Decodable {
+                let musicDescriptionShelfRenderer: Shelf?
+                struct Shelf: Decodable { let description: InnerTubeText? }
+            }
+        }
+
+        struct ImmersiveHeader: Decodable {
+            let title: InnerTubeText?
+            let subtitle: InnerTubeText?
+            let description: InnerTubeText?
+            let monthlyListenerCount: InnerTubeText?
+            let pronouns: InnerTubeText?
+            let thumbnail: ResponsiveHeader.ResponsiveThumbnail?
+            let foregroundThumbnail: ResponsiveHeader.ResponsiveThumbnail?
+            let subscriptionButton: SubscriptionButton?
+            let playButton: RadioButton?
+            let startRadioButton: RadioButton?
+
+            struct RadioButton: Decodable {
+                let buttonRenderer: ButtonRenderer?
+
+                struct ButtonRenderer: Decodable {
+                    let navigationEndpoint: NavigationEndpoint?
+                }
+            }
+
+            struct SubscriptionButton: Decodable {
+                let subscribeButtonRenderer: SubscribeButtonRenderer?
+
+                struct SubscribeButtonRenderer: Decodable {
+                    let channelId: String?
+                    let subscribed: Bool?
+                    /// False on the signed-in user's own channel.
+                    let enabled: Bool?
+                    let serviceEndpoints: [ServiceEndpoint]?
+                    /// Subscriber count, e.g. "79" or "1.2M" (channel headers).
+                    let subscriberCountText: InnerTubeText?
+
+                    struct ServiceEndpoint: Decodable {
+                        let subscribeEndpoint: SubEndpoint?
+                        let unsubscribeEndpoint: SubEndpoint?
+
+                        struct SubEndpoint: Decodable {
+                            let channelIds: [String]?
+                            let params: String?
+                        }
+                    }
+                }
+            }
+        }
+
+        /// Nested under `croppedSquareThumbnailRenderer`.
+        struct CroppedThumbnail: Decodable {
+            let croppedSquareThumbnailRenderer: ThumbnailRendererWrapper.MusicThumbnailRenderer?
+        }
+    }
+
+    // MARK: Body
+
+    struct EntityContents: Decodable {
+        let singleColumnBrowseResultsRenderer: BrowseResponse.SingleColumn?
+        let twoColumnBrowseResultsRenderer: TwoColumn?
+
+        struct TwoColumn: Decodable {
+            let tabs: [BrowseResponse.Tab]?
+            let secondaryContents: Secondary?
+
+            struct Secondary: Decodable {
+                let sectionListRenderer: BrowseResponse.SectionList?
+            }
+        }
+    }
+}

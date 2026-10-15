@@ -1,0 +1,980 @@
+//
+//  BrowseResponse.swift
+//  YT Music
+//
+//
+
+import Foundation
+
+// MARK: - Top level
+
+struct BrowseResponse: Decodable {
+    let responseContext: ResponseContext?
+    let contents: Contents?
+    let continuationContents: ContinuationContents?
+
+    /// Anonymous continuations only resolve with the visitor id of the response that issued the token.
+    struct ResponseContext: Decodable {
+        let visitorData: String?
+    }
+
+    struct ContinuationContents: Decodable {
+        let gridContinuation: GridRenderer?
+        let musicShelfContinuation: MusicShelfRenderer?
+        let sectionListContinuation: SectionList?
+    }
+
+    struct Contents: Decodable {
+        let singleColumnBrowseResultsRenderer: SingleColumn?
+        let twoColumnBrowseResultsRenderer: TwoColumn?
+        // Some pages (watch-next "Related") put the section list directly under `contents`, with no tab wrapper.
+        let sectionListRenderer: SectionList?
+    }
+
+    // Auth-gated and artist pages: primary column under `tabs`, plus `secondaryContents`.
+    struct TwoColumn: Decodable {
+        let tabs: [Tab]?
+        let secondaryContents: Secondary?
+
+        struct Secondary: Decodable {
+            let sectionListRenderer: SectionList?
+        }
+    }
+
+    struct SingleColumn: Decodable {
+        let tabs: [Tab]?
+    }
+
+    struct Tab: Decodable {
+        let tabRenderer: TabRenderer?
+    }
+
+    struct TabRenderer: Decodable {
+        let content: TabContent?
+        /// Only the selected tab carries content; the rest are lazy `continuations`.
+        let selected: Bool?
+    }
+
+    struct TabContent: Decodable {
+        let sectionListRenderer: SectionList?
+        let chipCloudRenderer: ChipCloudRenderer?
+    }
+
+    struct SectionList: Decodable {
+        let header: Header?
+        let contents: [SectionContent]?
+        let continuations: [BrowseContinuation]?
+
+        struct Header: Decodable {
+            let chipCloudRenderer: ChipCloudRenderer?
+            let musicSideAlignedItemRenderer: SideAligned?
+
+            struct SideAligned: Decodable {
+                let startItems: [StartItem]?
+
+                struct StartItem: Decodable {
+                    let chipCloudRenderer: ChipCloudRenderer?
+                    let sortFilterSubMenuRenderer: SortMenu?
+                }
+
+                struct SortMenu: Decodable {
+                    let subMenuItems: [Item]?
+
+                    struct Item: Decodable {
+                        let title: String?
+                        let selected: Bool?
+                        let navigationEndpoint: Endpoint?
+                        // On owned playlists, picking an order edits the playlist instead of reloading it.
+                        let serviceEndpoint: ServiceEndpoint?
+
+                        /// The `playlistVideoOrder` this item sets; 0 is manual.
+                        var playlistVideoOrder: Int? {
+                            serviceEndpoint?.playlistEditEndpoint?.actions?.lazy
+                                .compactMap(\.playlistVideoOrder).first
+                        }
+
+                        var sortEdit: PlaylistSortEdit? {
+                            guard let endpoint = serviceEndpoint?.playlistEditEndpoint,
+                                  let order = endpoint.actions?.first,
+                                  let action = order.action else { return nil }
+                            if let value = order.playlistVideoOrder {
+                                return PlaylistSortEdit(action: action, field: "playlistVideoOrder",
+                                                        value: value, params: endpoint.params)
+                            }
+                            if let value = order.playlistDynamicSortPreference {
+                                return PlaylistSortEdit(action: action, field: "playlistDynamicSortPreference",
+                                                        value: value, params: endpoint.params)
+                            }
+                            return nil
+                        }
+                    }
+
+                    struct ServiceEndpoint: Decodable {
+                        let playlistEditEndpoint: PlaylistEdit?
+
+                        struct PlaylistEdit: Decodable {
+                            let actions: [OrderAction]?
+                            let params: String?
+                        }
+                    }
+
+                    struct OrderAction: Decodable {
+                        let action: String?
+                        let playlistVideoOrder: Int?
+                        let playlistDynamicSortPreference: Int?
+                    }
+
+                    struct Endpoint: Decodable {
+                        let executeEntityCommand: EntityCommand?
+
+                        struct EntityCommand: Decodable {
+                            let commandEntityKey: String?
+                        }
+                    }
+                }
+            }
+        }
+
+        nonisolated var continuationToken: String? {
+            continuations?.first?.nextContinuationData?.continuation
+        }
+    }
+
+    /// A `final class`: by-value copies of this aggregate hit a toolchain value-witness miscompile.
+    nonisolated final class SectionContent: Decodable, @unchecked Sendable {
+        let musicCarouselShelfRenderer: MusicCarouselShelfRenderer?
+        let musicImmersiveCarouselShelfRenderer: MusicCarouselShelfRenderer?
+        let musicShelfRenderer: MusicShelfRenderer?
+        let musicPlaylistShelfRenderer: MusicShelfRenderer?
+        let gridRenderer: GridRenderer?
+        let itemSectionRenderer: ItemSectionRenderer?
+        let musicCardShelfRenderer: MusicCardShelfRenderer?
+        let chipCloudRenderer: ChipCloudRenderer?
+        // Real albums/playlists put their header in the body's section list, not top-level `header`.
+        let musicResponsiveHeaderRenderer: EntityBrowseResponse.HeaderContainer.ResponsiveHeader?
+        // Owned playlists wrap that header in an editable one.
+        let musicEditablePlaylistDetailHeaderRenderer: EditableHeader?
+
+        struct EditableHeader: Decodable {
+            let header: EntityBrowseResponse.HeaderContainer?
+            let editHeader: EditHeader?
+
+            struct EditHeader: Decodable {
+                let musicPlaylistEditHeaderRenderer: Renderer?
+
+                struct Renderer: Decodable {
+                    /// "PRIVATE" / "UNLISTED" / "PUBLIC".
+                    let privacy: String?
+                    let voteDropdown: VoteDropdown?
+                    /// True for private playlists, which can't be collaborative.
+                    let collaborationSettingsDisabled: Bool?
+                    let collaborationSettingsCommand: CollaborationCommand?
+                }
+
+                struct VoteDropdown: Decodable {
+                    let dropdownRenderer: Renderer?
+
+                    struct Renderer: Decodable { let entries: [Entry]? }
+                    struct Entry: Decodable { let dropdownItemRenderer: Item? }
+
+                    struct Item: Decodable {
+                        let label: InnerTubeText?
+                        let descriptionText: InnerTubeText?
+                        let int32Value: Int?
+                        let isSelected: Bool?
+                        let disabled: Bool?
+                    }
+
+                    var options: [PlaylistVoteOption] {
+                        (dropdownRenderer?.entries ?? []).compactMap { entry in
+                            guard let item = entry.dropdownItemRenderer, let value = item.int32Value,
+                                  let title = item.label?.text, !title.isEmpty else { return nil }
+                            return PlaylistVoteOption(
+                                value: value,
+                                title: title,
+                                detail: item.descriptionText?.text ?? "",
+                                isDisabled: item.disabled ?? false,
+                                isSelected: item.isSelected ?? false
+                            )
+                        }
+                    }
+                }
+
+                struct CollaborationCommand: Decodable {
+                    let showEngagementPanelEndpoint: PanelEndpoint?
+
+                    struct PanelEndpoint: Decodable {
+                        let identifier: Identifier?
+                        let globalConfiguration: GlobalConfiguration?
+
+                        struct Identifier: Decodable { let tag: String? }
+                        struct GlobalConfiguration: Decodable { let params: String? }
+                    }
+                }
+            }
+
+            var privacy: PlaylistPrivacy? {
+                editHeader?.musicPlaylistEditHeaderRenderer?.privacy.flatMap(PlaylistPrivacy.init(rawValue:))
+            }
+
+            var voteOptions: [PlaylistVoteOption] {
+                editHeader?.musicPlaylistEditHeaderRenderer?.voteDropdown?.options ?? []
+            }
+
+            var collaborationPanel: CollaborationPanelRef? {
+                guard let renderer = editHeader?.musicPlaylistEditHeaderRenderer,
+                      renderer.collaborationSettingsDisabled != true,
+                      let endpoint = renderer.collaborationSettingsCommand?.showEngagementPanelEndpoint,
+                      let panelId = endpoint.identifier?.tag,
+                      let params = endpoint.globalConfiguration?.params else { return nil }
+                return CollaborationPanelRef(panelId: panelId, params: params)
+            }
+        }
+
+        var responsiveHeader: EntityBrowseResponse.HeaderContainer.ResponsiveHeader? {
+            musicResponsiveHeaderRenderer
+                ?? musicEditablePlaylistDetailHeaderRenderer?.header?.musicResponsiveHeaderRenderer
+        }
+
+        var carousel: MusicCarouselShelfRenderer? {
+            musicCarouselShelfRenderer ?? musicImmersiveCarouselShelfRenderer
+        }
+
+        var listShelf: MusicShelfRenderer? {
+            musicShelfRenderer ?? musicPlaylistShelfRenderer
+        }
+    }
+}
+
+nonisolated struct ChipCloudRenderer: Decodable {
+    let chips: [Chip]?
+
+    struct Chip: Decodable {
+        let chipCloudChipRenderer: Renderer?
+    }
+
+    struct Renderer: Decodable {
+        let text: InnerTubeText?
+        let navigationEndpoint: Endpoint?
+        let onDeselectedCommand: Endpoint?
+        let isSelected: Bool?
+    }
+
+    struct Endpoint: Decodable {
+        let browseEndpoint: NavigationEndpoint.BrowseEndpoint?
+        let commandExecutorCommand: CommandExecutor?
+        // Playlist filter chips reload the track section from a continuation.
+        let browseSectionListReloadEndpoint: ReloadEndpoint?
+        let openPopupAction: OpenPopupAction?
+
+        struct OpenPopupAction: Decodable {
+            let popup: Popup?
+
+            struct Popup: Decodable {
+                let menuPopupRenderer: MenuPopup?
+            }
+
+            struct MenuPopup: Decodable {
+                let items: [Item]?
+            }
+
+            struct Item: Decodable {
+                let menuNavigationItemRenderer: Renderer?
+            }
+
+            struct Renderer: Decodable {
+                let text: InnerTubeText?
+                let icon: Icon?
+                let navigationEndpoint: Endpoint?
+            }
+
+            struct Icon: Decodable {
+                let iconType: String?
+            }
+        }
+
+        struct ReloadEndpoint: Decodable {
+            let continuation: Continuation?
+
+            struct Continuation: Decodable {
+                let reloadContinuationData: ContinuationData?
+            }
+        }
+
+        var reloadToken: String? {
+            browseSectionListReloadEndpoint?.continuation?.reloadContinuationData?.continuation
+        }
+
+        struct CommandExecutor: Decodable {
+            let commands: [Command]?
+
+            struct Command: Decodable {
+                let browseEndpoint: NavigationEndpoint.BrowseEndpoint?
+            }
+        }
+
+        var browse: NavigationEndpoint.BrowseEndpoint? {
+            browseEndpoint ?? commandExecutorCommand?.commands?.lazy.compactMap(\.browseEndpoint).first
+        }
+    }
+}
+
+nonisolated struct ItemSectionRenderer: Decodable {
+    let contents: [CarouselItem]?
+}
+
+nonisolated struct MusicCardShelfRenderer: Decodable {
+    let header: Header?
+    let title: InnerTubeText?
+    let subtitle: InnerTubeText?
+    let thumbnail: ThumbnailRendererWrapper?
+    let onTap: NavigationEndpoint?
+
+    struct Header: Decodable {
+        let musicCardShelfHeaderBasicRenderer: Basic?
+
+        struct Basic: Decodable {
+            let title: InnerTubeText?
+        }
+    }
+
+    var headerTitle: String {
+        header?.musicCardShelfHeaderBasicRenderer?.title?.text ?? ""
+    }
+}
+
+nonisolated struct GridRenderer: Decodable {
+    let header: GridHeader?
+    let items: [CarouselItem]?
+    let continuations: [BrowseContinuation]?
+
+    var continuationToken: String? {
+        continuations?.first?.nextContinuationData?.continuation
+    }
+
+    struct GridHeader: Decodable {
+        let gridHeaderRenderer: Inner?
+        struct Inner: Decodable { let title: InnerTubeText? }
+    }
+
+    var title: String { header?.gridHeaderRenderer?.title?.text ?? "" }
+}
+
+struct MusicShelfRenderer: Decodable {
+    let title: InnerTubeText?
+    let header: BrowseResponse.SectionList.Header?
+    let contents: [CarouselItem]?
+    let continuations: [BrowseContinuation]?
+    let subheaders: [Subheader]?
+
+    struct Subheader: Decodable {
+        let musicSideAlignedItemRenderer: SideAligned?
+
+        struct SideAligned: Decodable {
+            let startItems: [StartItem]?
+        }
+
+        struct StartItem: Decodable {
+            let dropdownRenderer: Dropdown?
+        }
+
+        struct Dropdown: Decodable {
+            let entries: [Entry]?
+        }
+
+        struct Entry: Decodable {
+            let dropdownItemRenderer: Item?
+        }
+
+        struct Item: Decodable {
+            let label: InnerTubeText?
+            let isSelected: Bool?
+            let onSelectCommand: NavigationEndpoint?
+        }
+    }
+
+    var dropdownItems: [Subheader.Item] {
+        (subheaders ?? []).compactMap(\.musicSideAlignedItemRenderer).flatMap { $0.startItems ?? [] }
+            .compactMap(\.dropdownRenderer).flatMap { $0.entries ?? [] }
+            .compactMap(\.dropdownItemRenderer)
+    }
+
+    var continuationToken: String? {
+        continuations?.first?.nextContinuationData?.continuation
+            ?? contents?.reversed().compactMap(\.continuationItemRenderer?.token).first
+    }
+}
+
+nonisolated struct BrowseContinuation: Decodable {
+    let nextContinuationData: ContinuationData?
+}
+
+nonisolated struct ContinuationData: Decodable {
+    let continuation: String?
+}
+
+// MARK: - Carousel shelf
+
+nonisolated struct MusicCarouselShelfRenderer: Decodable {
+    let header: Header?
+    let contents: [CarouselItem]?
+    /// Set on grid shelves ("Quick picks"), as a string ("4").
+    let numItemsPerColumn: String?
+
+    var rowsPerColumn: Int { numItemsPerColumn.flatMap(Int.init) ?? 1 }
+
+    struct Header: Decodable {
+        let musicCarouselShelfBasicHeaderRenderer: Basic?
+
+        struct Basic: Decodable {
+            let title: InnerTubeText?
+            /// Small label above the title, with the avatar ("TENSHII" on "Listen again").
+            let strapline: InnerTubeText?
+            let thumbnail: ThumbnailRendererWrapper?
+            // The "More" button navigates to a fuller listing.
+            let moreContentButton: MoreButton?
+
+            struct MoreButton: Decodable {
+                let buttonRenderer: ButtonRenderer?
+            }
+        }
+    }
+
+    var title: String {
+        header?.musicCarouselShelfBasicHeaderRenderer?.title?.text ?? ""
+    }
+
+    var strapline: String {
+        header?.musicCarouselShelfBasicHeaderRenderer?.strapline?.text ?? ""
+    }
+
+    var avatarURL: URL? {
+        header?.musicCarouselShelfBasicHeaderRenderer?.thumbnail?.bestURL
+    }
+
+    var headerButtons: [ButtonRenderer] {
+        [header?.musicCarouselShelfBasicHeaderRenderer?.moreContentButton?.buttonRenderer]
+            .compactMap { $0 }
+    }
+}
+
+nonisolated struct ButtonRenderer: Decodable {
+    let text: InnerTubeText?
+    let navigationEndpoint: NavigationEndpoint?
+}
+
+struct CarouselItem: Decodable {
+    let musicTwoRowItemRenderer: MusicTwoRowItemRenderer?
+    let musicResponsiveListItemRenderer: MusicResponsiveListItemRenderer?
+    let musicMultiRowListItemRenderer: MusicMultiRowListItemRenderer?
+    let continuationItemRenderer: ContinuationItemRenderer?
+}
+
+nonisolated struct ContinuationItemRenderer: Decodable {
+    let continuationEndpoint: ContinuationEndpoint?
+
+    struct ContinuationEndpoint: Decodable {
+        let continuationCommand: ContinuationCommand?
+    }
+
+    struct ContinuationCommand: Decodable {
+        let token: String?
+    }
+
+    var token: String? {
+        continuationEndpoint?.continuationCommand?.token
+    }
+}
+
+// MARK: - Card renderers
+
+nonisolated final class MusicTwoRowItemRenderer: Decodable, @unchecked Sendable {
+    let title: InnerTubeText?
+    let subtitle: InnerTubeText?
+    let thumbnailRenderer: ThumbnailRendererWrapper?
+    let navigationEndpoint: NavigationEndpoint?
+    let thumbnailOverlay: MusicResponsiveListItemRenderer.Overlay?
+    let menu: RendererMenu?
+
+    var overlayPlayEndpoint: NavigationEndpoint? {
+        thumbnailOverlay?.musicItemThumbnailOverlayRenderer?.content?.musicPlayButtonRenderer?.playNavigationEndpoint
+    }
+
+    var deleteEntityId: String? { menu?.deleteEntityId }
+
+    var likeStatus: LikeStatus? { menu?.likeStatus }
+}
+
+nonisolated final class MusicMultiRowListItemRenderer: Decodable, @unchecked Sendable {
+    let title: InnerTubeText?
+    let subtitle: InnerTubeText?
+    let thumbnail: ThumbnailRendererWrapper?
+    let onTap: NavigationEndpoint?
+    let menu: RendererMenu?
+    let playbackProgress: PlaybackProgress?
+
+    struct PlaybackProgress: Decodable {
+        let musicPlaybackProgressRenderer: Renderer?
+
+        struct Renderer: Decodable {
+            let durationText: InnerTubeText?
+        }
+    }
+
+    var videoId: String? { onTap?.watchEndpoint?.videoId }
+
+    /// "5 min 58 sec", without the leading bullet separator run.
+    var durationText: String? {
+        let text = (playbackProgress?.musicPlaybackProgressRenderer?.durationText?.runs ?? [])
+            .map(\.text).filter { $0 != " • " }.joined()
+        return text.isEmpty ? nil : text
+    }
+}
+
+nonisolated struct MusicResponsiveListItemRenderer: Decodable {
+    let flexColumns: [FlexColumn]?
+    let fixedColumns: [FixedColumn]?
+    let thumbnail: ThumbnailRendererWrapper?
+    let navigationEndpoint: NavigationEndpoint?
+    let overlay: Overlay?
+    let playlistItemData: PlaylistItemData?
+    let menu: RendererMenu?
+    let customIndexColumn: CustomIndexColumn?
+    // Up/down vote buttons, on playlists with voting turned on.
+    let engagementBar: EngagementBar?
+
+    struct FlexColumn: Decodable {
+        let musicResponsiveListItemFlexColumnRenderer: FlexRenderer?
+
+        struct FlexRenderer: Decodable {
+            let text: InnerTubeText?
+        }
+    }
+
+    /// Fixed columns hold the track duration ("3:45").
+    struct FixedColumn: Decodable {
+        let musicResponsiveListItemFixedColumnRenderer: FixedRenderer?
+
+        struct FixedRenderer: Decodable {
+            let text: InnerTubeText?
+        }
+    }
+
+    // Each vote button toggles, with a feedback token to cast the vote and one to undo it.
+    struct EngagementBar: Decodable {
+        let engagementBarViewModel: ViewModel?
+
+        struct ViewModel: Decodable { let actions: [Action]? }
+        struct Action: Decodable { let votingViewModel: Voting? }
+
+        struct Voting: Decodable {
+            let upvoteButton: VoteButton?
+            let downvoteButton: VoteButton?
+            let initialState: InitialState?
+        }
+
+        struct InitialState: Decodable {
+            let compactVotes: String?
+            let compactVotesUpvoted: String?
+            let compactVotesDownvoted: String?
+        }
+
+        struct VoteButton: Decodable {
+            let toggleButtonViewModel: Toggle?
+
+            struct Toggle: Decodable {
+                let defaultButtonViewModel: ButtonWrapper?
+                let toggledButtonViewModel: ButtonWrapper?
+                let isToggled: Bool?
+            }
+
+            struct ButtonWrapper: Decodable {
+                let buttonViewModel: Button?
+
+                var feedbackToken: String? {
+                    buttonViewModel?.onTap?.innertubeCommand?.feedbackEndpoint?.feedbackToken
+                }
+            }
+
+            struct Button: Decodable { let onTap: OnTap? }
+            struct OnTap: Decodable { let innertubeCommand: Command? }
+            struct Command: Decodable { let feedbackEndpoint: Feedback? }
+            struct Feedback: Decodable { let feedbackToken: String? }
+        }
+
+        var vote: PlaylistItemVote? {
+            guard let voting = engagementBarViewModel?.actions?.lazy.compactMap(\.votingViewModel).first,
+                  let up = voting.upvoteButton?.toggleButtonViewModel,
+                  let down = voting.downvoteButton?.toggleButtonViewModel,
+                  let state = voting.initialState,
+                  let upvote = up.defaultButtonViewModel?.feedbackToken,
+                  let undoUpvote = up.toggledButtonViewModel?.feedbackToken,
+                  let downvote = down.defaultButtonViewModel?.feedbackToken,
+                  let undoDownvote = down.toggledButtonViewModel?.feedbackToken else { return nil }
+            let status: PlaylistItemVote.Status =
+                up.isToggled == true ? .up : down.isToggled == true ? .down : .none
+            return PlaylistItemVote(
+                status: status,
+                neutralCount: state.compactVotes ?? "0",
+                upvotedCount: state.compactVotesUpvoted ?? "1",
+                downvotedCount: state.compactVotesDownvoted ?? "-1",
+                upvoteToken: upvote,
+                undoUpvoteToken: undoUpvote,
+                downvoteToken: downvote,
+                undoDownvoteToken: undoDownvote
+            )
+        }
+    }
+
+    struct CustomIndexColumn: Decodable {
+        let musicCustomIndexColumnRenderer: Renderer?
+
+        struct Renderer: Decodable {
+            let text: InnerTubeText?
+            let icon: Icon?
+        }
+
+        struct Icon: Decodable {
+            let iconType: String?
+        }
+    }
+
+    struct PlaylistItemData: Decodable {
+        let videoId: String?
+        /// Playlist-scoped id needed to remove/reorder a row (distinct from videoId).
+        let playlistSetVideoId: String?
+    }
+
+    struct Overlay: Decodable {
+        let musicItemThumbnailOverlayRenderer: ThumbnailOverlay?
+
+        struct ThumbnailOverlay: Decodable {
+            let content: OverlayContent?
+
+            struct OverlayContent: Decodable {
+                let musicPlayButtonRenderer: PlayButton?
+
+                struct PlayButton: Decodable {
+                    let playNavigationEndpoint: NavigationEndpoint?
+                }
+            }
+        }
+    }
+
+    var textColumns: [String] {
+        textColumnRuns.map(\.text)
+    }
+
+    var textColumnRuns: [InnerTubeText] {
+        (flexColumns ?? [])
+            .compactMap { $0.musicResponsiveListItemFlexColumnRenderer?.text }
+            .filter { !$0.text.isEmpty }
+    }
+
+    var durationText: String? {
+        (fixedColumns ?? [])
+            .compactMap { $0.musicResponsiveListItemFixedColumnRenderer?.text?.text }
+            .first { !$0.isEmpty }
+    }
+
+    var entityLinks: [EntityLink] {
+        (flexColumns ?? [])
+            .dropFirst()
+            .flatMap { $0.musicResponsiveListItemFlexColumnRenderer?.text?.entityLinks ?? [] }
+    }
+
+    var playEndpoint: NavigationEndpoint? {
+        navigationEndpoint ?? overlayPlayEndpoint
+    }
+
+    var overlayPlayEndpoint: NavigationEndpoint? {
+        overlay?.musicItemThumbnailOverlayRenderer?.content?.musicPlayButtonRenderer?.playNavigationEndpoint
+    }
+
+    var chartRank: ChartRank? {
+        guard let renderer = customIndexColumn?.musicCustomIndexColumnRenderer,
+              let rank = renderer.text?.text, !rank.isEmpty else { return nil }
+        return ChartRank(rank: rank, trend: renderer.icon?.iconType.flatMap(ChartRank.Trend.init(iconType:)))
+    }
+
+    var trackVideoId: String? {
+        playlistItemData?.videoId ?? playEndpoint?.watchEndpoint?.videoId
+    }
+
+    var playlistSetVideoId: String? { playlistItemData?.playlistSetVideoId }
+
+    /// Server's edit-permission signal: present only on rows of editable playlists.
+    var offersPlaylistRemoval: Bool { menu?.offersPlaylistRemoval ?? false }
+
+    var feedbackToken: String? { menu?.feedbackToken }
+
+    var likeStatus: LikeStatus? { menu?.likeStatus }
+
+    var deleteEntityId: String? { menu?.deleteEntityId }
+}
+
+// MARK: - Shared primitives
+
+nonisolated struct RendererMenu: Decodable {
+    let menuRenderer: MenuRenderer?
+
+    struct MenuRenderer: Decodable {
+        let items: [Item]?
+        // Holds the like/dislike toggle with its current rating.
+        let topLevelButtons: [TopLevelButton]?
+    }
+
+    struct TopLevelButton: Decodable {
+        let likeButtonRenderer: LikeButton?
+
+        struct LikeButton: Decodable {
+            /// "LIKE" / "DISLIKE" / "INDIFFERENT: the account-relative rating.
+            let likeStatus: String?
+        }
+    }
+
+    struct Item: Decodable {
+        let menuServiceItemRenderer: ServiceItem?
+        let menuNavigationItemRenderer: NavigationItem?
+        // Card-style rows carry their like state here, not in a top-level like button.
+        let toggleMenuServiceItemRenderer: ToggleItem?
+    }
+
+    struct ServiceItem: Decodable {
+        let serviceEndpoint: ServiceEndpoint?
+    }
+
+    /// Default endpoint is the state a tap moves to, so the current state is its inverse.
+    struct ToggleItem: Decodable {
+        let defaultServiceEndpoint: ToggleEndpoint?
+
+        struct ToggleEndpoint: Decodable {
+            let likeEndpoint: LikeEndpoint?
+        }
+
+        struct LikeEndpoint: Decodable {
+            /// The rating this action sets ("LIKE"/"INDIFFERENT"/"DISLIKE").
+            let status: String?
+            let target: Target?
+
+            struct Target: Decodable {
+                /// Only a videoId target is a track rating (a "save playlist" toggle targets a playlistId).
+                let videoId: String?
+            }
+        }
+    }
+
+    struct NavigationItem: Decodable {
+        let navigationEndpoint: NavEndpoint?
+    }
+
+    struct NavEndpoint: Decodable {
+        let confirmDialogEndpoint: ConfirmDialog?
+        let playlistEditorEndpoint: PlaylistEditor?
+
+        struct PlaylistEditor: Decodable { let playlistId: String? }
+    }
+
+    struct ConfirmDialog: Decodable {
+        let content: Content?
+
+        struct Content: Decodable {
+            let confirmDialogRenderer: Renderer?
+
+            struct Renderer: Decodable {
+                let confirmButton: ConfirmButton?
+
+                struct ConfirmButton: Decodable {
+                    let buttonRenderer: ButtonRenderer?
+
+                    struct ButtonRenderer: Decodable {
+                        let serviceEndpoint: ServiceEndpoint?
+                    }
+                }
+            }
+        }
+    }
+
+    struct ServiceEndpoint: Decodable {
+        let feedbackEndpoint: FeedbackEndpoint?
+        let deletePrivatelyOwnedEntityCommand: DeleteEntity?
+        let playlistEditEndpoint: PlaylistEditEndpoint?
+
+        struct FeedbackEndpoint: Decodable { let feedbackToken: String? }
+        struct DeleteEntity: Decodable { let entityId: String? }
+        /// Only presence matters; the remove request is rebuilt from `videoId` + `setVideoId`.
+        struct PlaylistEditEndpoint: Decodable {}
+    }
+
+    var editablePlaylistId: String? {
+        (menuRenderer?.items ?? []).lazy
+            .compactMap { $0.menuNavigationItemRenderer?.navigationEndpoint?.playlistEditorEndpoint?.playlistId }
+            .first
+    }
+
+    var feedbackToken: String? {
+        (menuRenderer?.items ?? [])
+            .compactMap { $0.menuServiceItemRenderer?.serviceEndpoint?.feedbackEndpoint?.feedbackToken }
+            .first
+    }
+
+    /// Doubles as the playlist-ownership signal.
+    var offersPlaylistRemoval: Bool {
+        (menuRenderer?.items ?? []).contains {
+            $0.menuServiceItemRenderer?.serviceEndpoint?.playlistEditEndpoint != nil
+        }
+    }
+
+    /// Card rows carry a like toggle (inverse of current state); list rows carry a like button.
+    var likeStatus: LikeStatus? {
+        if let raw = (menuRenderer?.topLevelButtons ?? [])
+            .compactMap(\.likeButtonRenderer?.likeStatus).first {
+            return LikeStatus(innerTube: raw)
+        }
+        for item in menuRenderer?.items ?? [] {
+            guard let like = item.toggleMenuServiceItemRenderer?.defaultServiceEndpoint?.likeEndpoint,
+                  like.target?.videoId != nil else { continue }
+            switch like.status {
+            case "LIKE":        return .indifferent   // tapping would like it → not liked
+            case "INDIFFERENT": return .liked          // tapping would unlike it → liked
+            default:            return nil
+            }
+        }
+        return nil
+    }
+
+    var deleteEntityId: String? {
+        for item in menuRenderer?.items ?? [] {
+            if let id = item.menuServiceItemRenderer?.serviceEndpoint?
+                .deletePrivatelyOwnedEntityCommand?.entityId {
+                return id
+            }
+            if let id = item.menuNavigationItemRenderer?.navigationEndpoint?
+                .confirmDialogEndpoint?.content?.confirmDialogRenderer?.confirmButton?
+                .buttonRenderer?.serviceEndpoint?.deletePrivatelyOwnedEntityCommand?.entityId {
+                return id
+            }
+        }
+        return nil
+    }
+}
+
+nonisolated struct InnerTubeText: Decodable {
+    let runs: [Run]?
+    let simpleText: String?
+
+    struct Run: Decodable {
+        let text: String
+        let navigationEndpoint: NavigationEndpoint?
+
+        var entityLink: EntityLink? {
+            navigationEndpoint?.browseEndpoint?.entityLink(named: text)
+        }
+    }
+
+    var text: String {
+        simpleText ?? (runs ?? []).map(\.text).joined()
+    }
+
+    var entityLinks: [EntityLink] {
+        (runs ?? []).compactMap(\.entityLink)
+    }
+}
+
+nonisolated struct ThumbnailRendererWrapper: Decodable {
+    let musicThumbnailRenderer: MusicThumbnailRenderer?
+
+    nonisolated struct MusicThumbnailRenderer: Decodable {
+        let thumbnail: ThumbnailList?
+
+        struct ThumbnailList: Decodable {
+            let thumbnails: [Thumbnail]?
+        }
+
+        struct Thumbnail: Decodable {
+            let url: String
+            let width: Int?
+            let height: Int?
+        }
+
+        var bestURL: URL? {
+            let thumbs = thumbnail?.thumbnails ?? []
+            let best = thumbs.max { ($0.width ?? 0) < ($1.width ?? 0) }
+            return best.flatMap { URL(string: $0.url) }
+        }
+    }
+
+    var bestURL: URL? {
+        musicThumbnailRenderer?.bestURL
+    }
+}
+
+struct NavigationEndpoint: Decodable {
+    var playlistId: String? { watchPlaylistEndpoint?.playlistId ?? watchEndpoint?.playlistId }
+    let watchEndpoint: WatchEndpoint?
+    let browseEndpoint: BrowseEndpoint?
+    let watchPlaylistEndpoint: WatchPlaylistEndpoint?
+
+    struct WatchPlaylistEndpoint: Decodable {
+        let playlistId: String?
+    }
+
+    struct WatchEndpoint: Decodable {
+        let videoId: String?
+        let playlistId: String?
+        let watchEndpointMusicSupportedConfigs: MusicConfigs?
+
+        struct MusicConfigs: Decodable {
+            let watchEndpointMusicConfig: MusicConfig?
+
+            struct MusicConfig: Decodable {
+                let musicVideoType: String?   // e.g. _ATV (song) / _OMV / _UGC / _PODCAST_EPISODE
+            }
+        }
+
+        var musicVideoType: String? {
+            watchEndpointMusicSupportedConfigs?.watchEndpointMusicConfig?.musicVideoType
+        }
+    }
+
+    nonisolated struct BrowseEndpoint: Decodable {
+        let browseId: String?
+        let params: String?
+        let browseEndpointContextSupportedConfigs: Configs?
+
+        struct Configs: Decodable {
+            let browseEndpointContextMusicConfig: MusicConfig?
+
+            struct MusicConfig: Decodable {
+                let pageType: String?   // e.g. MUSIC_PAGE_TYPE_ALBUM / _ARTIST / _PLAYLIST
+            }
+        }
+
+        var pageType: String? {
+            browseEndpointContextSupportedConfigs?
+                .browseEndpointContextMusicConfig?.pageType
+        }
+
+        func entityLink(named name: String) -> EntityLink? {
+            guard let browseId, let kind, !name.isEmpty else { return nil }
+            return EntityLink(name: name, browseId: browseId, kind: kind)
+        }
+
+        var kind: ShelfItem.Kind? {
+            switch pageType {
+            case "MUSIC_PAGE_TYPE_ALBUM":    return .album
+            case "MUSIC_PAGE_TYPE_PLAYLIST": return .playlist
+            case "MUSIC_PAGE_TYPE_ARTIST":   return .artist
+            // A channel byline is treated as an artist (enables "Go to artist").
+            case "MUSIC_PAGE_TYPE_USER_CHANNEL": return .artist
+            default:                         break
+            }
+            // Uploaded artists/albums report MUSIC_PAGE_TYPE_UNKNOWN; their browse ids encode the kind.
+            if let browseId {
+                if browseId.contains("privately_owned_artist") { return .artist }
+                if browseId.contains("privately_owned_release") { return .album }
+            }
+            return nil
+        }
+    }
+}
