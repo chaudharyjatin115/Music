@@ -1,0 +1,102 @@
+//
+//  LibraryParser.swift
+//  YT Music
+//
+
+import Foundation
+
+nonisolated enum LibraryParser {
+
+    static func parse(_ response: BrowseResponse) -> LibraryPage {
+        let sectionList = response.contents?
+            .singleColumnBrowseResultsRenderer?
+            .tabs?.first?
+            .tabRenderer?.content?
+            .sectionListRenderer
+        let sections = sectionList?.contents ?? []
+
+        let chips = (sectionList?.header?.musicSideAlignedItemRenderer?.startItems ?? [])
+            .flatMap { $0.chipCloudRenderer?.chips ?? [] }
+            .compactMap(chip(from:))
+        let continuation = sections.lazy
+            .compactMap { $0.gridRenderer?.continuationToken ?? $0.listShelf?.continuationToken }
+            .first
+
+        var shelves: [Shelf] = []
+        var tracks: [Track] = []
+        for section in sections {
+            if let list = section.listShelf, isSongList(list.contents) {
+                tracks += songs(list.contents)
+            } else if let shelf = shelf(from: section) {
+                shelves.append(shelf)
+            }
+        }
+        return LibraryPage(shelves: shelves, tracks: tracks, chips: chips, continuation: continuation)
+    }
+
+    static func parseContinuation(_ response: BrowseResponse) -> LibraryPage {
+        let grid = response.continuationContents?.gridContinuation
+        let list = response.continuationContents?.musicShelfContinuation
+        let continuation = grid?.continuationToken ?? list?.continuationToken
+        if let rows = list?.contents, isSongList(rows) {
+            return LibraryPage(shelves: [], tracks: songs(rows), continuation: continuation)
+        }
+        let items = playableItems(grid?.items ?? list?.contents)
+        return LibraryPage(
+            shelves: items.isEmpty ? [] : [Shelf(title: "", items: items)],
+            continuation: continuation
+        )
+    }
+
+    private static func isSongList(_ contents: [CarouselItem]?) -> Bool {
+        let items = playableItems(contents)
+        return !items.isEmpty && items.allSatisfy { $0.kind == .song || $0.kind == .video }
+    }
+
+    private static func songs(_ contents: [CarouselItem]?) -> [Track] {
+        let header = EntityHeader(title: "", subtitle: "", description: "", thumbnailURL: nil, content: .feed)
+        return EntityPageParser.parseItems(contents ?? [], startIndex: 1, header: header)
+            .filter { $0.videoId != nil }
+            .enumerated()
+            .map { offset, track in
+                var track = track
+                track.index = offset + 1
+                return track
+            }
+    }
+
+    private static func chip(from chip: ChipCloudRenderer.Chip) -> FeedChip? {
+        guard let renderer = chip.chipCloudChipRenderer,
+              let title = renderer.text?.text, !title.isEmpty,
+              let browse = renderer.navigationEndpoint?.browse,
+              let browseId = browse.browseId else { return nil }
+        return FeedChip(id: "\(browseId)|\(browse.params ?? title)", title: title,
+                        browseId: browseId, params: browse.params)
+    }
+
+    private static func shelf(from section: BrowseResponse.SectionContent) -> Shelf? {
+        if let grid = section.gridRenderer {
+            return makeShelf(title: grid.title, contents: grid.items)
+        }
+        if let carousel = section.carousel {
+            return makeShelf(title: carousel.title, contents: carousel.contents)
+        }
+        if let listShelf = section.listShelf {
+            return makeShelf(title: listShelf.title?.text ?? "", contents: listShelf.contents)
+        }
+        return nil
+    }
+
+    private static func makeShelf(title: String, contents: [CarouselItem]?) -> Shelf? {
+        let items = playableItems(contents)
+        guard !items.isEmpty else { return nil }
+        return Shelf(title: title.isEmpty ? String(localized: "nav.library") : title, items: items)
+    }
+
+    /// Drops action tiles ("New playlist", "Shuffle all", "Add podcast") that neither play nor open a page.
+    private static func playableItems(_ contents: [CarouselItem]?) -> [ShelfItem] {
+        (contents ?? [])
+            .compactMap { HomeFeedParser.makeItem(from: $0) }
+            .filter { $0.videoId != nil || $0.browseId != nil }
+    }
+}
