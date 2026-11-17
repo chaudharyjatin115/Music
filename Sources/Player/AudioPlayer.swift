@@ -101,7 +101,6 @@ final class AudioPlayer: AudioOutput {
             addPeriodicObserver(to: player)
             observeTimeControl(of: player)
         }
-        setupRemoteCommands()
     }
 
     // No deinit: the single AudioPlayer lives for the app's lifetime.
@@ -387,68 +386,7 @@ final class AudioPlayer: AudioOutput {
         }
     }
 
-    private func setupRemoteCommands() {
-        commandCenter.playCommand.addTarget { [weak self] _ in
-            MainActor.assumeIsolated {
-                guard let self, self.active.currentItem != nil else { return .noSuchContent }
-                if !self.isPlaying { self.onTogglePlayPause?() }
-                return .success
-            }
-        }
-        commandCenter.pauseCommand.addTarget { [weak self] _ in
-            MainActor.assumeIsolated {
-                guard let self, self.active.currentItem != nil else { return .noSuchContent }
-                if self.isPlaying { self.onTogglePlayPause?() }
-                return .success
-            }
-        }
-        commandCenter.togglePlayPauseCommand.addTarget { [weak self] _ in
-            MainActor.assumeIsolated {
-                guard let self, self.active.currentItem != nil else { return .noSuchContent }
-                self.onTogglePlayPause?()
-                return .success
-            }
-        }
-        commandCenter.changePlaybackPositionCommand.addTarget { [weak self] event in
-            MainActor.assumeIsolated {
-                guard let self,
-                      let event = event as? MPChangePlaybackPositionCommandEvent else {
-                    return .commandFailed
-                }
-                self.seek(to: event.positionTime)
-                return .success
-            }
-        }
-        commandCenter.skipBackwardCommand.preferredIntervals = [NSNumber(value: Self.skipBackSeconds)]
-        commandCenter.skipForwardCommand.preferredIntervals = [NSNumber(value: Self.skipForwardSeconds)]
-        commandCenter.skipBackwardCommand.isEnabled = false
-        commandCenter.skipForwardCommand.isEnabled = false
-        for command in [commandCenter.skipBackwardCommand, commandCenter.skipForwardCommand] {
-            command.addTarget { [weak self] event in
-                MainActor.assumeIsolated {
-                    guard let self, let event = event as? MPSkipIntervalCommandEvent else { return .commandFailed }
-                    let forward = command === self.commandCenter.skipForwardCommand
-                    let target = self.currentTime + (forward ? event.interval : -event.interval)
-                    self.seek(to: min(max(0, target), self.duration > 0 ? self.duration : target))
-                    return .success
-                }
-            }
-        }
-        commandCenter.nextTrackCommand.addTarget { [weak self] _ in
-            MainActor.assumeIsolated {
-                guard let self, let onNext = self.onNext else { return .noSuchContent }
-                onNext()
-                return .success
-            }
-        }
-        commandCenter.previousTrackCommand.addTarget { [weak self] _ in
-            MainActor.assumeIsolated {
-                guard let self, let onPrevious = self.onPrevious else { return .noSuchContent }
-                onPrevious()
-                return .success
-            }
-        }
-    }
+
 
     // MARK: - Observation
 

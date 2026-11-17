@@ -616,29 +616,58 @@ public final class AudioPlayerService: ObservableObject {
     private func setupRemoteCommands() {
         let center = MPRemoteCommandCenter.shared()
 
+        center.playCommand.isEnabled = true
         center.playCommand.addTarget { [weak self] _ in
-            Task { @MainActor in self?.togglePlayPause() }
+            Task { @MainActor in
+                guard let self = self else { return }
+                if !self.isPlaying {
+                    self.togglePlayPause()
+                }
+            }
             return .success
         }
+
+        center.pauseCommand.isEnabled = true
         center.pauseCommand.addTarget { [weak self] _ in
-            Task { @MainActor in self?.togglePlayPause() }
+            Task { @MainActor in
+                guard let self = self else { return }
+                if self.isPlaying {
+                    self.togglePlayPause()
+                }
+            }
             return .success
         }
+
+        center.togglePlayPauseCommand.isEnabled = true
         center.togglePlayPauseCommand.addTarget { [weak self] _ in
-            Task { @MainActor in self?.togglePlayPause() }
+            Task { @MainActor in
+                self?.togglePlayPause()
+            }
             return .success
         }
+
+        center.nextTrackCommand.isEnabled = true
         center.nextTrackCommand.addTarget { [weak self] _ in
-            Task { @MainActor in self?.next() }
+            Task { @MainActor in
+                self?.next()
+            }
             return .success
         }
+
+        center.previousTrackCommand.isEnabled = true
         center.previousTrackCommand.addTarget { [weak self] _ in
-            Task { @MainActor in self?.previous() }
+            Task { @MainActor in
+                self?.previous()
+            }
             return .success
         }
+
+        center.changePlaybackPositionCommand.isEnabled = true
         center.changePlaybackPositionCommand.addTarget { [weak self] event in
             if let posEvent = event as? MPChangePlaybackPositionCommandEvent {
-                Task { @MainActor in self?.seek(to: posEvent.positionTime) }
+                Task { @MainActor in
+                    self?.seek(to: posEvent.positionTime)
+                }
                 return .success
             }
             return .commandFailed
@@ -648,10 +677,11 @@ public final class AudioPlayerService: ObservableObject {
     private func updateNowPlayingInfo() {
         guard let song = currentSong else {
             MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+            MPNowPlayingInfoCenter.default().playbackState = .stopped
             return
         }
 
-        let info: [String: Any] = [
+        var info: [String: Any] = [
             MPMediaItemPropertyTitle: song.title,
             MPMediaItemPropertyArtist: song.artist,
             MPMediaItemPropertyAlbumTitle: song.album.isEmpty ? song.title : song.album,
@@ -660,7 +690,12 @@ public final class AudioPlayerService: ObservableObject {
             MPNowPlayingInfoPropertyPlaybackRate: isPlaying ? 1.0 : 0.0
         ]
 
+        if let existingArtwork = MPNowPlayingInfoCenter.default().nowPlayingInfo?[MPMediaItemPropertyArtwork] {
+            info[MPMediaItemPropertyArtwork] = existingArtwork
+        }
+
         let nsDict = NSDictionary(dictionary: info)
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nsDict as? [String: Any]
+        MPNowPlayingInfoCenter.default().playbackState = isPlaying ? .playing : .paused
     }
 }
