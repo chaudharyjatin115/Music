@@ -12,7 +12,7 @@ A native macOS YouTube Music client built with SwiftUI.
 - Apple Music metadata integration for high-resolution album artwork
 - Audio quality options, 10-band equalizer, and loudness normalization
 - Offline downloads and local caching
-- Last.fm scrobbling and Discord Rich Presence
+- Last.fm and ListenBrainz api support
 
 ## Building from source
 
