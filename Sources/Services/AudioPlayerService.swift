@@ -3,6 +3,7 @@ import AVFoundation
 import MediaPlayer
 import AppKit
 import UserNotifications
+import WidgetKit
 
 public enum RepeatMode {
     case off
@@ -501,13 +502,40 @@ public final class AudioPlayerService: ObservableObject {
         )
     }
 
+    private var lastToggleTime: TimeInterval = 0
+    private var lastSkipTime: TimeInterval = 0
+
     public func togglePlayPause() {
+        let now = ProcessInfo.processInfo.systemUptime
+        guard now - lastToggleTime > 0.35 else { return }
+        lastToggleTime = now
+
         audioPlayer.togglePlayPause()
         isPlaying = audioPlayer.isPlaying
         updateNowPlayingInfo()
     }
 
+    public func pause() {
+        guard isPlaying else { return }
+        lastToggleTime = ProcessInfo.processInfo.systemUptime
+        audioPlayer.pause()
+        isPlaying = false
+        updateNowPlayingInfo()
+    }
+
+    public func resume() {
+        guard !isPlaying else { return }
+        lastToggleTime = ProcessInfo.processInfo.systemUptime
+        audioPlayer.resume()
+        isPlaying = true
+        updateNowPlayingInfo()
+    }
+
     public func next() {
+        let now = ProcessInfo.processInfo.systemUptime
+        guard now - lastSkipTime > 0.35 else { return }
+        lastSkipTime = now
+
         if !queue.isEmpty {
             let nextSong = queue.removeFirst()
             play(song: nextSong)
@@ -543,6 +571,10 @@ public final class AudioPlayerService: ObservableObject {
     }
 
     public func previous() {
+        let now = ProcessInfo.processInfo.systemUptime
+        guard now - lastSkipTime > 0.35 else { return }
+        lastSkipTime = now
+
         if currentTime > 3.0 {
             seek(to: 0)
         } else if let previousSong = history.popLast() {
@@ -619,10 +651,7 @@ public final class AudioPlayerService: ObservableObject {
         center.playCommand.isEnabled = true
         center.playCommand.addTarget { [weak self] _ in
             Task { @MainActor in
-                guard let self = self else { return }
-                if !self.isPlaying {
-                    self.togglePlayPause()
-                }
+                self?.resume()
             }
             return .success
         }
@@ -630,10 +659,7 @@ public final class AudioPlayerService: ObservableObject {
         center.pauseCommand.isEnabled = true
         center.pauseCommand.addTarget { [weak self] _ in
             Task { @MainActor in
-                guard let self = self else { return }
-                if self.isPlaying {
-                    self.togglePlayPause()
-                }
+                self?.pause()
             }
             return .success
         }
@@ -678,6 +704,8 @@ public final class AudioPlayerService: ObservableObject {
         guard let song = currentSong else {
             MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
             MPNowPlayingInfoCenter.default().playbackState = .stopped
+            WidgetBridge.writeState(WidgetPlaybackSnapshot())
+            WidgetCenter.shared.reloadAllTimelines()
             return
         }
 
@@ -690,12 +718,28 @@ public final class AudioPlayerService: ObservableObject {
             MPNowPlayingInfoPropertyPlaybackRate: isPlaying ? 1.0 : 0.0
         ]
 
-        if let existingArtwork = MPNowPlayingInfoCenter.default().nowPlayingInfo?[MPMediaItemPropertyArtwork] {
+        var artworkData: Data? = nil
+        if let existingArtwork = MPNowPlayingInfoCenter.default().nowPlayingInfo?[MPMediaItemPropertyArtwork] as? MPMediaItemArtwork {
             info[MPMediaItemPropertyArtwork] = existingArtwork
+            if let image = existingArtwork.image(at: CGSize(width: 300, height: 300)) {
+                artworkData = image.tiffRepresentation
+            }
         }
 
         let nsDict = NSDictionary(dictionary: info)
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nsDict as? [String: Any]
         MPNowPlayingInfoCenter.default().playbackState = isPlaying ? .playing : .paused
+
+        let snapshot = WidgetPlaybackSnapshot(
+            title: song.title,
+            artist: song.artist,
+            album: song.album,
+            isPlaying: isPlaying,
+            duration: max(duration, 0.0),
+            currentTime: max(currentTime, 0.0),
+            hasArtwork: artworkData != nil
+        )
+        WidgetBridge.writeState(snapshot, artworkData: artworkData)
+        WidgetCenter.shared.reloadAllTimelines()
     }
 }

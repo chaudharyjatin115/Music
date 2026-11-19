@@ -9,6 +9,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         VerticalScrollForwarding.install()
         MediaKeyManager.shared.start()
 
+        DistributedNotificationCenter.default().addObserver(
+            forName: WidgetBridge.toggleNotification,
+            object: nil,
+            queue: .main
+        ) { _ in
+            Task { @MainActor in
+                AudioPlayerService.shared.togglePlayPause()
+            }
+        }
+
+        DistributedNotificationCenter.default().addObserver(
+            forName: WidgetBridge.nextNotification,
+            object: nil,
+            queue: .main
+        ) { _ in
+            Task { @MainActor in
+                AudioPlayerService.shared.next()
+            }
+        }
+
+        DistributedNotificationCenter.default().addObserver(
+            forName: WidgetBridge.previousNotification,
+            object: nil,
+            queue: .main
+        ) { _ in
+            Task { @MainActor in
+                AudioPlayerService.shared.previous()
+            }
+        }
+
         if let icon = Bundle.main.image(forResource: "AppIcon") ?? NSImage(contentsOfFile: Bundle.main.bundlePath + "/Contents/Resources/AppIcon.icns") {
             NSApplication.shared.applicationIconImage = icon
         }
