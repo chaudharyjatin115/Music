@@ -440,7 +440,7 @@ public struct NowPlayingView: View {
             } else {
                 ScrollViewReader { proxy in
                     ScrollView(.vertical, showsIndicators: false) {
-                        LazyVStack(alignment: .leading, spacing: compact ? 16 : 22) {
+                        VStack(alignment: .leading, spacing: compact ? 16 : 22) {
                             ForEach(Array(player.currentLyrics.enumerated()), id: \.offset) { index, line in
                                 LyricLineRow(
                                     line: line,

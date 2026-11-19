@@ -136,7 +136,7 @@ public struct FeedView: View {
                         .padding(.vertical, 4)
                     }
                     .onChange(of: albumScrollIndex) { _, newIndex in
-                        withAnimation {
+                        withAnimation(.easeInOut(duration: 0.25)) {
                             proxy.scrollTo(newIndex, anchor: .leading)
                         }
                     }
