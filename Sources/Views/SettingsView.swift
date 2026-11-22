@@ -457,6 +457,33 @@ public struct SettingsView: View {
                     }
                 }
 
+                SettingsRow(showDivider: true) {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Downloaded Music Storage").font(.system(size: 13, weight: .medium))
+                            Text("\(DownloadManager.shared.downloadedSongs.count) songs saved (\(DownloadManager.shared.totalDownloadedSizeFormatted))")
+                                .font(.system(size: 11))
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        HStack(spacing: 8) {
+                            Button("Show in Finder") {
+                                DownloadManager.shared.openDownloadsFolder()
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+
+                            if !DownloadManager.shared.downloadedSongs.isEmpty {
+                                Button("Delete All", role: .destructive) {
+                                    DownloadManager.shared.deleteAllDownloads()
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+                            }
+                        }
+                    }
+                }
+
                 SettingsRow {
                     HStack {
                         VStack(alignment: .leading, spacing: 2) {

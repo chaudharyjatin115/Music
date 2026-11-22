@@ -68,7 +68,11 @@ public final class AudioPlayerService: ObservableObject {
     @Published public var repeatMode: RepeatMode = .off
     @Published public var queue: [Song] = []
     @Published public var history: [Song] = []
-    @Published public var autoplayRadio: Bool = true
+    @Published public var autoplayRadio: Bool = AppSettings.shared.autoplay {
+        didSet {
+            AppSettings.shared.autoplay = autoplayRadio
+        }
+    }
     @Published public var lastPlayedPlaylist: Playlist? {
         didSet {
             if let p = lastPlayedPlaylist, let data = try? JSONEncoder().encode(p) {
@@ -82,6 +86,31 @@ public final class AudioPlayerService: ObservableObject {
 
     @Published public var isLossless: Bool = false
     @Published public var audioQualityTitle: String = "AAC 256kbps"
+
+    public enum SleepTimerOption: String, CaseIterable, Identifiable, Sendable {
+        case off = "Off"
+        case m15 = "15 Minutes"
+        case m30 = "30 Minutes"
+        case m45 = "45 Minutes"
+        case m60 = "1 Hour"
+        case endOfTrack = "End of Song"
+
+        public var id: String { rawValue }
+
+        public var durationSeconds: TimeInterval? {
+            switch self {
+            case .off, .endOfTrack: return nil
+            case .m15: return 15 * 60
+            case .m30: return 30 * 60
+            case .m45: return 45 * 60
+            case .m60: return 60 * 60
+            }
+        }
+    }
+
+    @Published public var sleepTimerOption: SleepTimerOption = .off
+    @Published public var sleepTimerRemaining: TimeInterval? = nil
+    private var sleepTimerTask: Task<Void, Never>? = nil
 
     private let audioPlayer = AudioPlayer()
     private var activeStreamTask: Task<Void, Never>? = nil
@@ -176,6 +205,12 @@ public final class AudioPlayerService: ObservableObject {
         guard let currentId = currentSong?.id else { return }
         guard lastAdvancedSongId != currentId else { return }
         lastAdvancedSongId = currentId
+
+        if sleepTimerOption == .endOfTrack {
+            setSleepTimer(option: .off)
+            pause()
+            return
+        }
 
         if repeatMode == .one {
             seek(to: 0)
@@ -526,6 +561,42 @@ public final class AudioPlayerService: ObservableObject {
         audioPlayer.pause()
         isPlaying = false
         updateNowPlayingInfo()
+    }
+
+    public func setSleepTimer(option: SleepTimerOption) {
+        sleepTimerTask?.cancel()
+        sleepTimerTask = nil
+        sleepTimerOption = option
+
+        guard let duration = option.durationSeconds else {
+            sleepTimerRemaining = nil
+            return
+        }
+
+        sleepTimerRemaining = duration
+        sleepTimerTask = Task { @MainActor [weak self] in
+            while true {
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                guard !Task.isCancelled, let self = self else { return }
+                guard let rem = self.sleepTimerRemaining, rem > 0 else {
+                    self.sleepTimerRemaining = nil
+                    self.sleepTimerOption = .off
+                    self.pause()
+                    return
+                }
+                self.sleepTimerRemaining = rem - 1
+            }
+        }
+    }
+
+    public func startRadio(for song: Song) {
+        Task {
+            let radioTracks = await InnerTubeService.shared.fetchRadioQueue(videoId: song.id)
+            let filtered = radioTracks.filter { $0.id != song.id }
+            await MainActor.run {
+                self.play(song: song, newQueue: filtered)
+            }
+        }
     }
 
     public func resume() {

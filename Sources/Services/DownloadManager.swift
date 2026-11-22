@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 
 @MainActor
 public final class DownloadManager: ObservableObject {
@@ -91,5 +92,33 @@ public final class DownloadManager: ObservableObject {
         }
         downloadedSongs.remove(at: index)
         saveIndex()
+    }
+
+    public var totalDownloadedSizeFormatted: String {
+        var totalBytes: Int64 = 0
+        let fm = FileManager.default
+        for song in downloadedSongs {
+            if let path = song.localFilePath, let attrs = try? fm.attributesOfItem(atPath: path), let size = attrs[.size] as? Int64 {
+                totalBytes += size
+            }
+        }
+        let formatter = ByteCountFormatter()
+        formatter.allowedUnits = [.useMB, .useGB]
+        formatter.countStyle = .file
+        return formatter.string(fromByteCount: totalBytes)
+    }
+
+    public func deleteAllDownloads() {
+        for song in downloadedSongs {
+            if let path = song.localFilePath {
+                try? FileManager.default.removeItem(atPath: path)
+            }
+        }
+        downloadedSongs.removeAll()
+        saveIndex()
+    }
+
+    public func openDownloadsFolder() {
+        NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: downloadsDirectory.path)
     }
 }

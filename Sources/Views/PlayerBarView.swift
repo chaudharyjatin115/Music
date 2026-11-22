@@ -6,6 +6,7 @@ public struct PlayerBarView: View {
     @Binding var showNowPlaying: Bool
     @State private var showLyricsPopover = false
     @State private var showQueuePopover = false
+    @State private var showSleepTimerPopover = false
     @State private var isHoveringPlay = false
 
     public init(showNowPlaying: Binding<Bool> = .constant(false)) {
@@ -250,6 +251,26 @@ public struct PlayerBarView: View {
                 }
 
                 Button {
+                    showSleepTimerPopover.toggle()
+                } label: {
+                    HStack(spacing: 3) {
+                        Image(systemName: "timer")
+                            .font(.system(size: 13, weight: .semibold))
+                        if let rem = player.sleepTimerRemaining, player.sleepTimerOption != .off {
+                            Text(String(format: "%d:%02d", Int(rem / 60), Int(rem.truncatingRemainder(dividingBy: 60))))
+                                .font(.system(size: 10, weight: .bold))
+                        }
+                    }
+                    .foregroundStyle(player.sleepTimerOption != .off ? Color.pink : Color.secondary)
+                }
+                .buttonStyle(.plain)
+                .help(player.sleepTimerOption != .off ? "Sleep Timer Active" : "Sleep Timer")
+                .popover(isPresented: $showSleepTimerPopover, arrowEdge: .top) {
+                    SleepTimerPopoverView()
+                        .frame(width: 230, height: 270)
+                }
+
+                Button {
                     withAnimation(.spring(response: 0.38, dampingFraction: 0.8)) {
                         showNowPlaying.toggle()
                     }
@@ -261,7 +282,7 @@ public struct PlayerBarView: View {
                 .buttonStyle(.plain)
                 .help("Open Full Now Playing")
             }
-            .frame(width: 200)
+            .frame(width: 230)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
@@ -370,12 +391,31 @@ struct QueuePopoverView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack {
+            HStack(spacing: 8) {
                 Text("Playing Next")
                     .font(.system(size: 14, weight: .bold))
                 Spacer()
+                Button {
+                    player.autoplayRadio.toggle()
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "infinity")
+                            .font(.system(size: 11, weight: .semibold))
+                        Text("Autoplay")
+                            .font(.system(size: 11, weight: .semibold))
+                    }
+                    .foregroundStyle(player.autoplayRadio ? Color.pink : Color.secondary)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 3)
+                    .background(
+                        Capsule().fill(player.autoplayRadio ? Color.pink.opacity(0.12) : Color.primary.opacity(0.06))
+                    )
+                }
+                .buttonStyle(.plain)
+                .help(player.autoplayRadio ? "Autoplay is ON" : "Autoplay is OFF")
+
                 if !player.queue.isEmpty {
-                    Text("\(player.queue.count) tracks")
+                    Text("\(player.queue.count)")
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                 }
@@ -386,7 +426,7 @@ struct QueuePopoverView: View {
             Divider()
 
             ScrollView {
-                VStack(spacing: 4) {
+                LazyVStack(spacing: 4) {
                     if let current = player.currentSong {
                         VStack(alignment: .leading, spacing: 6) {
                             Text("NOW PLAYING")
@@ -533,5 +573,58 @@ private struct PlayerBarProgressRow: View {
             .buttonStyle(.plain)
             .help(AppSettings.shared.showRemainingTime ? "Showing remaining time" : "Showing total duration")
         }
+    }
+}
+
+struct SleepTimerPopoverView: View {
+    @ObservedObject var player = AudioPlayerService.shared
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("Sleep Timer")
+                    .font(.system(size: 14, weight: .bold))
+                Spacer()
+                if let rem = player.sleepTimerRemaining, player.sleepTimerOption != .off {
+                    Text(String(format: "%d:%02d", Int(rem / 60), Int(rem.truncatingRemainder(dividingBy: 60))))
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Color.pink)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 14)
+
+            Divider()
+
+            VStack(spacing: 3) {
+                ForEach(AudioPlayerService.SleepTimerOption.allCases) { opt in
+                    Button {
+                        player.setSleepTimer(option: opt)
+                    } label: {
+                        HStack {
+                            Text(opt.rawValue)
+                                .font(.system(size: 13, weight: player.sleepTimerOption == opt ? .semibold : .regular))
+                                .foregroundStyle(player.sleepTimerOption == opt ? Color.pink : Color.primary)
+                            Spacer()
+                            if player.sleepTimerOption == opt {
+                                Image(systemName: "checkmark")
+                                    .font(.system(size: 11, weight: .bold))
+                                    .foregroundStyle(Color.pink)
+                            }
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(
+                            RoundedRectangle(cornerRadius: 6)
+                                .fill(player.sleepTimerOption == opt ? Color.pink.opacity(0.1) : Color.clear)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 8)
+            .padding(.bottom, 10)
+        }
+        .background(.ultraThinMaterial)
     }
 }
