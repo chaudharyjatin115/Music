@@ -99,6 +99,7 @@ actor SignatureDecipher {
         context.evaluateScript(Self.setupScript)
 
         let signerIndex = installSolver(js, into: context)
+        JSGarbageCollect(context.jsGlobalContextRef)
 
         Self.log.note(
             "base.js \(js.count) chars · sts=\(signatureTimestamp ?? "nil") · "

@@ -7,8 +7,8 @@ final class ImageMemoryCache: @unchecked Sendable {
     private let cache = NSCache<NSURL, NSImage>()
 
     private init() {
-        cache.countLimit = 40
-        cache.totalCostLimit = 16 * 1024 * 1024
+        cache.countLimit = 100
+        cache.totalCostLimit = 40 * 1024 * 1024
     }
 
     func image(for url: URL) -> NSImage? {

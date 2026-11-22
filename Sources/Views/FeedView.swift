@@ -27,7 +27,7 @@ public struct FeedView: View {
 
     public var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 28) {
+            LazyVStack(alignment: .leading, spacing: 28) {
                 if title == "Listen Now" {
                     renderHome()
                 } else {

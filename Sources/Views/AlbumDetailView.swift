@@ -28,7 +28,7 @@ public struct AlbumDetailView: View {
 
     public var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 28) {
+            LazyVStack(alignment: .leading, spacing: 28) {
                 HStack(alignment: .bottom, spacing: 28) {
                     let displayThumb: String = {
                         if let t = album?.thumbnailUrl, !t.isEmpty { return t }

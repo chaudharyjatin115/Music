@@ -13,14 +13,17 @@ enum VerticalScrollForwarding {
 }
 
 private final class ScrollForwardState {
-    var isForwarding: Bool?
-    var beganEvent: NSEvent?
+    enum Direction {
+        case vertical
+        case horizontal
+    }
+    var direction: Direction?
 }
 
 nonisolated(unsafe) private var scrollStateKey: UInt8 = 0
 
 extension NSScrollView {
-    private var scrollState: ScrollForwardState {
+    private var scrollForwardState: ScrollForwardState {
         if let state = objc_getAssociatedObject(self, &scrollStateKey) as? ScrollForwardState {
             return state
         }
@@ -31,7 +34,7 @@ extension NSScrollView {
 
     var canScrollVertically: Bool {
         guard let document = documentView else { return false }
-        return document.frame.height > contentView.bounds.height + 1
+        return document.frame.height > contentView.bounds.height + 2
     }
 
     private var enclosingVerticalScrollView: NSScrollView? {
@@ -46,82 +49,63 @@ extension NSScrollView {
     }
 
     @objc private func forwarded_scrollWheel(with event: NSEvent) {
+        // Vertical-capable scroll views handle their own scrolling natively
         if canScrollVertically {
             forwarded_scrollWheel(with: event)
             return
         }
 
+        // Horizontal-only scroll views: route vertical events to the enclosing vertical scroll view
         guard let outer = enclosingVerticalScrollView else {
             forwarded_scrollWheel(with: event)
             return
         }
 
-        if !event.hasPreciseScrollingDeltas {
+        // Traditional mouse wheel without gesture phases
+        if event.phase.isEmpty && event.momentumPhase.isEmpty {
             if abs(event.scrollingDeltaY) > abs(event.scrollingDeltaX) {
                 outer.scrollWheel(with: event)
-                return
+            } else {
+                forwarded_scrollWheel(with: event)
             }
-            forwarded_scrollWheel(with: event)
             return
         }
 
-        let state = scrollState
+        let state = scrollForwardState
+
+        if event.phase.contains(.began) {
+            state.direction = nil
+        }
+
         let isEnded = event.phase.contains(.ended) || event.phase.contains(.cancelled)
-        let isMomentumEnded = event.momentumPhase.contains(.ended)
+        let isMomentumEnded = event.momentumPhase.contains(.ended) || event.momentumPhase.contains(.cancelled)
 
-        if let forwarding = state.isForwarding {
-            if forwarding {
+        // If gesture direction was already locked, route consistently to avoid hitching
+        if let dir = state.direction {
+            if dir == .vertical {
                 outer.scrollWheel(with: event)
             } else {
                 forwarded_scrollWheel(with: event)
             }
-
             if isMomentumEnded || (isEnded && event.momentumPhase.isEmpty) {
-                state.isForwarding = nil
-                state.beganEvent = nil
+                state.direction = nil
             }
             return
         }
 
-        if event.phase.contains(.began) && event.scrollingDeltaX == 0 && event.scrollingDeltaY == 0 {
-            state.beganEvent = event
-            return
-        }
+        let dy = abs(event.scrollingDeltaY)
+        let dx = abs(event.scrollingDeltaX)
 
-        if isEnded {
-            if let began = state.beganEvent {
-                state.beganEvent = nil
-                forwarded_scrollWheel(with: began)
-            }
-            forwarded_scrollWheel(with: event)
-            state.isForwarding = nil
-            return
-        }
-
-        let deltaY = abs(event.scrollingDeltaY)
-        let deltaX = abs(event.scrollingDeltaX)
-
-        if deltaY > 0 || deltaX > 0 {
-            let shouldForward = deltaY > deltaX
-            state.isForwarding = shouldForward
-
-            if let began = state.beganEvent {
-                state.beganEvent = nil
-                if shouldForward {
-                    outer.scrollWheel(with: began)
-                } else {
-                    forwarded_scrollWheel(with: began)
-                }
-            }
-
-            if shouldForward {
+        if dy > 0 || dx > 0 {
+            let dir: ScrollForwardState.Direction = (dy > dx) ? .vertical : .horizontal
+            state.direction = dir
+            if dir == .vertical {
                 outer.scrollWheel(with: event)
             } else {
                 forwarded_scrollWheel(with: event)
             }
-
             if isMomentumEnded || (isEnded && event.momentumPhase.isEmpty) {
-                state.isForwarding = nil
+                state.direction = nil
             }
             return
         }

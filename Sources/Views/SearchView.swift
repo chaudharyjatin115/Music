@@ -52,7 +52,7 @@ public struct SearchView: View {
 
     public var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 28) {
+            LazyVStack(alignment: .leading, spacing: 28) {
                 // Header
                 Text(query.isEmpty ? "Search" : "Results for \"\(query)\"")
                     .font(.system(size: 28, weight: .bold))
