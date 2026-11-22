@@ -7,6 +7,8 @@ public struct NowPlayingView: View {
     @State private var isHoveringVolume = false
     @State private var isDraggingVolume = false
     @State private var activeTab: NowPlayingTab = .lyrics
+    @State private var isImmersiveLyrics = false
+    @State private var immersiveFontScale: CGFloat = 1.0
 
     public enum NowPlayingTab: String, CaseIterable, Identifiable {
         case lyrics = "Lyrics"
@@ -38,15 +40,20 @@ public struct NowPlayingView: View {
                     topNavigationBar
                         .frame(width: totalW, height: topBarH)
 
-                    splitMainContent(
-                        totalW: totalW,
-                        contentH: contentH,
-                        isCompactH: isCompactH,
-                        isVeryCompactH: isVeryCompactH,
-                        isCompactW: isCompactW,
-                        isNarrow: isNarrow
-                    )
-                    .frame(width: totalW, height: contentH)
+                    if isImmersiveLyrics {
+                        fullscreenLyricsContent(totalW: totalW, contentH: contentH)
+                            .frame(width: totalW, height: contentH)
+                    } else {
+                        splitMainContent(
+                            totalW: totalW,
+                            contentH: contentH,
+                            isCompactH: isCompactH,
+                            isVeryCompactH: isVeryCompactH,
+                            isCompactW: isCompactW,
+                            isNarrow: isNarrow
+                        )
+                        .frame(width: totalW, height: contentH)
+                    }
                 }
                 .frame(width: totalW, height: totalH)
             }
@@ -87,31 +94,260 @@ public struct NowPlayingView: View {
             .keyboardShortcut(.escape, modifiers: [])
             .help("Close Now Playing (Esc)")
 
-            Spacer()
-
-            AppleMusicTabSelector(activeTab: $activeTab, queueCount: player.queue.count)
-
-            if activeTab == .queue && !player.queue.isEmpty {
-                Button("Clear Queue") {
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                        player.queue.removeAll()
-                    }
+            Button {
+                withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+                    isImmersiveLyrics.toggle()
                 }
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(Color.pink)
-                .buttonStyle(.plain)
-                .padding(.horizontal, 10)
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: isImmersiveLyrics ? "rectangle.split.2x1" : "quote.bubble.fill")
+                        .font(.system(size: 11, weight: .bold))
+                    Text(isImmersiveLyrics ? "Split View" : "Full Lyrics")
+                        .font(.system(size: 12, weight: .semibold))
+                }
+                .foregroundStyle(.white.opacity(0.95))
+                .padding(.horizontal, 12)
                 .padding(.vertical, 5)
                 .background(
-                    Capsule()
-                        .fill(Color.pink.opacity(0.14))
+                    Capsule(style: .continuous)
+                        .fill(isImmersiveLyrics ? Color.pink.opacity(0.85) : Color.white.opacity(0.16))
+                        .overlay(
+                            Capsule(style: .continuous)
+                                .strokeBorder(Color.white.opacity(0.24), lineWidth: 0.75)
+                        )
                 )
+            }
+            .buttonStyle(.plain)
+            .help(isImmersiveLyrics ? "Exit Fullscreen Lyrics" : "Fullscreen Immersive Lyrics")
+
+            Spacer()
+
+            if !isImmersiveLyrics {
+                AppleMusicTabSelector(activeTab: $activeTab, queueCount: player.queue.count)
+
+                if activeTab == .queue {
+                    Button {
+                        player.autoplayRadio.toggle()
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "infinity")
+                                .font(.system(size: 11, weight: .semibold))
+                            Text("Autoplay")
+                                .font(.system(size: 11, weight: .semibold))
+                        }
+                        .foregroundStyle(player.autoplayRadio ? Color.pink : Color.white.opacity(0.8))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(
+                            Capsule()
+                                .fill(player.autoplayRadio ? Color.pink.opacity(0.2) : Color.white.opacity(0.12))
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .help(player.autoplayRadio ? "Autoplay is ON" : "Autoplay is OFF")
+
+                    if !player.queue.isEmpty {
+                        Button("Clear Queue") {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                                player.queue.removeAll()
+                            }
+                        }
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(Color.pink)
+                        .buttonStyle(.plain)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(
+                            Capsule()
+                                .fill(Color.pink.opacity(0.14))
+                        )
+                    }
+                }
+            } else {
+                HStack(spacing: 8) {
+                    Button {
+                        immersiveFontScale = max(0.75, immersiveFontScale - 0.15)
+                    } label: {
+                        Text("A-")
+                            .font(.system(size: 11, weight: .bold))
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(Capsule().fill(.ultraThinMaterial))
+                    }
+                    .buttonStyle(.plain)
+                    .help("Smaller Lyrics")
+
+                    Button {
+                        immersiveFontScale = min(1.4, immersiveFontScale + 0.15)
+                    } label: {
+                        Text("A+")
+                            .font(.system(size: 12, weight: .bold))
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(Capsule().fill(.ultraThinMaterial))
+                    }
+                    .buttonStyle(.plain)
+                    .help("Larger Lyrics")
+                }
             }
         }
         .padding(.horizontal, 24)
         .padding(.top, 10)
         .padding(.bottom, 6)
         .frame(height: 48)
+    }
+
+    @ViewBuilder
+    private func fullscreenLyricsContent(totalW: CGFloat, contentH: CGFloat) -> some View {
+        let activeSize = (AppSettings.shared.lyricsFontSize.titleFontSize + 8) * immersiveFontScale
+        let inactiveSize = (AppSettings.shared.lyricsFontSize.inactiveFontSize + 4) * immersiveFontScale
+
+        ZStack(alignment: .bottom) {
+            VStack(alignment: .leading, spacing: 0) {
+                if player.currentLyrics.isEmpty {
+                    VStack(spacing: 16) {
+                        Spacer()
+                        Image(systemName: "quote.bubble")
+                            .font(.system(size: 54))
+                            .foregroundStyle(.white.opacity(0.3))
+                        Text("No synchronized lyrics available for this track.")
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundStyle(.white.opacity(0.65))
+                        Spacer()
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    ScrollViewReader { proxy in
+                        ScrollView(.vertical, showsIndicators: false) {
+                            VStack(alignment: .leading, spacing: 28) {
+                                ForEach(Array(player.currentLyrics.enumerated()), id: \.offset) { index, line in
+                                    LyricLineRow(
+                                        line: line,
+                                        isCurrent: index == player.currentLyricIndex,
+                                        activeSize: activeSize,
+                                        inactiveSize: inactiveSize,
+                                        reduceMotion: AppSettings.shared.reduceMotion,
+                                        onSelect: { player.seek(to: line.startTimeSeconds) }
+                                    )
+                                    .id(index)
+                                }
+                            }
+                            .padding(.top, 40)
+                            .padding(.bottom, 140)
+                            .padding(.horizontal, max(40, (totalW - 780) / 2))
+                        }
+                        .scrollIndicators(.hidden)
+                        .mask(
+                            LinearGradient(
+                                stops: [
+                                    .init(color: .clear, location: 0),
+                                    .init(color: .black, location: 0.08),
+                                    .init(color: .black, location: 0.88),
+                                    .init(color: .clear, location: 1.0)
+                                ],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                        )
+                        .onChange(of: player.currentLyricIndex) { _, newIndex in
+                            guard AppSettings.shared.autoScrollLyrics else { return }
+                            guard newIndex >= 0 else { return }
+                            withAnimation(.spring(response: 0.45, dampingFraction: 0.8)) {
+                                proxy.scrollTo(newIndex, anchor: .center)
+                            }
+                        }
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            HStack(spacing: 18) {
+                if let song = player.currentSong {
+                    CachedAsyncImage(url: URL(string: song.thumbnailUrl.thumbnailSized(for: 160))) { phase in
+                        if let img = phase.image {
+                            img.resizable().scaledToFill()
+                        } else {
+                            Image(systemName: "music.note").foregroundStyle(.white.opacity(0.4))
+                        }
+                    }
+                    .frame(width: 44, height: 44)
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(song.title)
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundStyle(.white)
+                            .lineLimit(1)
+                        Text(song.artist)
+                            .font(.system(size: 11))
+                            .foregroundStyle(.white.opacity(0.7))
+                            .lineLimit(1)
+                    }
+                    .frame(width: 140, alignment: .leading)
+                }
+
+                Spacer()
+
+                HStack(spacing: 16) {
+                    Button {
+                        player.previous()
+                    } label: {
+                        Image(systemName: "backward.fill")
+                            .font(.system(size: 15))
+                            .foregroundStyle(.white)
+                    }
+                    .buttonStyle(.plain)
+
+                    Button {
+                        player.togglePlayPause()
+                    } label: {
+                        Image(systemName: player.isPlaying ? "pause.circle.fill" : "play.circle.fill")
+                            .font(.system(size: 34))
+                            .foregroundStyle(.white)
+                    }
+                    .buttonStyle(.plain)
+
+                    Button {
+                        player.next()
+                    } label: {
+                        Image(systemName: "forward.fill")
+                            .font(.system(size: 15))
+                            .foregroundStyle(.white)
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                Spacer()
+
+                HStack(spacing: 8) {
+                    Image(systemName: "speaker.fill")
+                        .font(.system(size: 9))
+                        .foregroundStyle(.white.opacity(0.6))
+
+                    Slider(value: $player.volume, in: 0...1)
+                        .controlSize(.mini)
+                        .frame(width: 70)
+                        .tint(Color.white)
+
+                    Image(systemName: "speaker.wave.3.fill")
+                        .font(.system(size: 9))
+                        .foregroundStyle(.white.opacity(0.6))
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 10)
+            .frame(width: min(totalW - 48, 620), height: 64)
+            .background(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(.ultraThinMaterial)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .strokeBorder(Color.white.opacity(0.2), lineWidth: 0.75)
+                    )
+            )
+            .shadow(color: .black.opacity(0.4), radius: 20, x: 0, y: 8)
+            .padding(.bottom, 24)
+        }
     }
 
     @ViewBuilder
