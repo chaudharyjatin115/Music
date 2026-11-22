@@ -7,6 +7,10 @@ public struct TrackListView: View {
     @ObservedObject var player = AudioPlayerService.shared
     @ObservedObject var downloadManager = DownloadManager.shared
     @State private var hoveredSongId: String?
+    @State private var userPlaylists: [Playlist] = []
+    @State private var showNewPlaylistAlert = false
+    @State private var targetSongForPlaylist: Song? = nil
+    @State private var newPlaylistTitle: String = ""
 
     public init(songs: [Song], showArtwork: Bool = true, showArtist: Bool = true) {
         self.songs = songs
@@ -180,17 +184,99 @@ public struct TrackListView: View {
                         Button("Play") { player.play(song: song, newQueue: songs) }
                         Button("Play Next") { player.queue.insert(song, at: 0) }
                         Button("Add to Queue") { player.queue.append(song) }
+                        Button("Start Radio") { player.startRadio(for: song) }
+
                         Divider()
+
+                        Menu("Add to Playlist") {
+                            Button {
+                                targetSongForPlaylist = song
+                                showNewPlaylistAlert = true
+                            } label: {
+                                Label("New Playlist...", systemImage: "plus")
+                            }
+
+                            if !userPlaylists.isEmpty {
+                                Divider()
+                                ForEach(userPlaylists) { pl in
+                                    Button(pl.title) {
+                                        Task {
+                                            try? await InnerTubeService.shared.addToPlaylist(playlistId: pl.id, videoId: song.id)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        Divider()
+
+                        if !song.artist.isEmpty {
+                            Button("Go to Artist") {
+                                let artistId = song.artistId ?? ""
+                                NotificationCenter.default.post(
+                                    name: .openDetailItem,
+                                    object: FeedItem.artist(Artist(id: artistId, name: song.artist))
+                                )
+                            }
+                        }
+
+                        if !song.album.isEmpty {
+                            Button("Go to Album") {
+                                let albumId = song.albumId ?? ""
+                                NotificationCenter.default.post(
+                                    name: .openDetailItem,
+                                    object: FeedItem.album(Album(id: albumId, title: song.album, artist: song.artist))
+                                )
+                            }
+                        }
+
+                        Button("Copy Song Link") {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString("https://music.youtube.com/watch?v=\(song.id)", forType: .string)
+                        }
+
+                        Divider()
+
                         if downloadManager.isDownloaded(songId: song.id) {
                             Button("Remove Download") { downloadManager.deleteDownload(songId: song.id) }
                         } else {
                             Button("Download") { downloadManager.downloadSong(song) }
                         }
+
                         Button("Like on YouTube Music") {
                             Task { try? await InnerTubeService.shared.toggleLike(videoId: song.id, isLiked: true) }
                         }
                     }
                 }
+            }
+        }
+        .task {
+            if userPlaylists.isEmpty && AuthManager.shared.isLoggedIn {
+                if let list = try? await InnerTubeService.shared.fetchUserPlaylists() {
+                    self.userPlaylists = list
+                }
+            }
+        }
+        .alert("New Playlist", isPresented: $showNewPlaylistAlert) {
+            TextField("Playlist Title", text: $newPlaylistTitle)
+            Button("Create") {
+                let title = newPlaylistTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !title.isEmpty else { return }
+                let songId = targetSongForPlaylist?.id
+                Task {
+                    if let plId = try? await InnerTubeService.shared.createPlaylist(title: title, videoIds: songId.map { [$0] } ?? []) {
+                        let newPl = Playlist(id: plId, title: title, songCount: songId != nil ? 1 : 0)
+                        await MainActor.run {
+                            self.userPlaylists.insert(newPl, at: 0)
+                            self.newPlaylistTitle = ""
+                            self.targetSongForPlaylist = nil
+                        }
+                    }
+                }
+            }
+            Button("Cancel", role: .cancel) {
+                targetSongForPlaylist = nil
+                newPlaylistTitle = ""
             }
         }
     }

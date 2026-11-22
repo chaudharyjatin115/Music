@@ -17,6 +17,8 @@ public struct DetailView: View {
                     artistId: artist.id,
                     initialName: artist.name,
                     initialThumbnailUrl: artist.thumbnailUrl,
+                    initialIsFollowed: artist.isFollowed,
+                    initialChannelId: artist.channelId,
                     activeDetailItem: $activeDetailItem
                 )
             case .album(let album):

@@ -99,7 +99,6 @@ struct MusicApp: App {
 
     @MainActor
     private static func purgeTransientMemory() {
-        URLCache.shared.removeAllCachedResponses()
         URLCache.shared.memoryCapacity = 0
         ImageMemoryCache.shared.clear()
         malloc_zone_pressure_relief(nil, 0)
@@ -119,7 +118,6 @@ struct MusicApp: App {
         let center = NotificationCenter.default
         let backgroundEvents: [NSNotification.Name] = [
             NSApplication.didHideNotification,
-            NSApplication.didResignActiveNotification,
             NSWindow.didMiniaturizeNotification
         ]
         for name in backgroundEvents {
@@ -167,7 +165,7 @@ struct MusicApp: App {
         .commands {
             CommandGroup(replacing: .appSettings) {
                 Button("Settings…") {
-                    NotificationCenter.default.post(name: NSNotification.Name("OpenSettingsSheet"), object: nil)
+                    NotificationCenter.default.post(name: .openSettingsSheet, object: nil)
                 }
                 .keyboardShortcut(",", modifiers: [.command])
             }

@@ -5,8 +5,16 @@ public struct PlaylistDetailView: View {
     let initialTitle: String
     @State private var playlist: Playlist?
     @State private var isLoading = true
+    @State private var showRenameAlert = false
+    @State private var renameText = ""
+    @State private var showDeleteConfirm = false
     private let player = AudioPlayerService.shared
     @ObservedObject var downloadManager = DownloadManager.shared
+    @Environment(\.dismiss) private var dismiss
+
+    private var rawPlaylistId: String {
+        playlistId.hasPrefix("VL") ? String(playlistId.dropFirst(2)) : playlistId
+    }
 
     public init(playlistId: String, initialTitle: String = "Playlist") {
         self.playlistId = playlistId
@@ -15,7 +23,7 @@ public struct PlaylistDetailView: View {
 
     public var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 28) {
+            LazyVStack(alignment: .leading, spacing: 28) {
                 // MARK: - Playlist Header
                 HStack(alignment: .bottom, spacing: 28) {
                     // Big Artwork
@@ -123,6 +131,36 @@ public struct PlaylistDetailView: View {
                             }
                             .buttonStyle(.plain)
                             .help("Download Playlist")
+
+                            Button {
+                                NSPasteboard.general.clearContents()
+                                NSPasteboard.general.setString("https://music.youtube.com/playlist?list=\(rawPlaylistId)", forType: .string)
+                            } label: {
+                                Image(systemName: "square.and.arrow.up")
+                                    .font(.system(size: 13))
+                                    .padding(8)
+                                    .background(Circle().fill(Color.primary.opacity(0.08)))
+                            }
+                            .buttonStyle(.plain)
+                            .help("Copy Playlist Link")
+
+                            Menu {
+                                Button("Rename Playlist...") {
+                                    renameText = playlist?.title ?? initialTitle
+                                    showRenameAlert = true
+                                }
+                                Divider()
+                                Button("Delete Playlist", role: .destructive) {
+                                    showDeleteConfirm = true
+                                }
+                            } label: {
+                                Image(systemName: "ellipsis")
+                                    .font(.system(size: 13, weight: .bold))
+                                    .padding(8)
+                                    .background(Circle().fill(Color.primary.opacity(0.08)))
+                            }
+                            .menuStyle(.borderlessButton)
+                            .frame(width: 32)
                         }
                     }
                 }
@@ -155,6 +193,31 @@ public struct PlaylistDetailView: View {
         .scrollIndicators(.hidden)
         .task {
             await loadPlaylist()
+        }
+        .alert("Rename Playlist", isPresented: $showRenameAlert) {
+            TextField("New Title", text: $renameText)
+            Button("Save") {
+                let title = renameText.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !title.isEmpty else { return }
+                playlist?.title = title
+                Task {
+                    try? await InnerTubeService.shared.renamePlaylist(playlistId: rawPlaylistId, title: title)
+                    NotificationCenter.default.post(name: .libraryPlaylistsChanged, object: nil)
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        }
+        .alert("Delete Playlist", isPresented: $showDeleteConfirm) {
+            Button("Delete", role: .destructive) {
+                Task {
+                    try? await InnerTubeService.shared.deletePlaylist(playlistId: rawPlaylistId)
+                    NotificationCenter.default.post(name: .libraryPlaylistsChanged, object: nil)
+                    NotificationCenter.default.post(name: .closeActiveDetailItem, object: nil)
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Are you sure you want to delete this playlist from your YouTube Music library? This action cannot be undone.")
         }
     }
 

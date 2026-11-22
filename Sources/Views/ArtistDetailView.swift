@@ -4,29 +4,38 @@ public struct ArtistDetailView: View {
     let artistId: String
     let initialName: String
     let initialThumbnailUrl: String
+    let initialIsFollowed: Bool
+    let initialChannelId: String?
     @Binding var activeDetailItem: FeedItem?
 
     @State private var artist: Artist?
     @State private var isLoading = true
     @State private var isBioExpanded = false
+    @State private var isFollowed: Bool
 
+    @ObservedObject private var authManager = AuthManager.shared
     private let player = AudioPlayerService.shared
 
     public init(
         artistId: String,
         initialName: String = "Artist",
         initialThumbnailUrl: String = "",
+        initialIsFollowed: Bool = false,
+        initialChannelId: String? = nil,
         activeDetailItem: Binding<FeedItem?> = .constant(nil)
     ) {
         self.artistId = artistId
         self.initialName = initialName
         self.initialThumbnailUrl = initialThumbnailUrl
+        self.initialIsFollowed = initialIsFollowed
+        self.initialChannelId = initialChannelId
+        self._isFollowed = State(initialValue: initialIsFollowed)
         self._activeDetailItem = activeDetailItem
     }
 
     public var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 32) {
+            LazyVStack(alignment: .leading, spacing: 32) {
                 heroHeaderView
 
                 Divider()
@@ -242,6 +251,30 @@ public struct ArtistDetailView: View {
                         .background(Capsule().fill(Color.primary.opacity(0.08)))
                     }
                     .buttonStyle(.plain)
+
+                    Button {
+                        toggleFollowArtist()
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: isFollowed ? "checkmark" : "plus")
+                                .font(.system(size: 12, weight: .bold))
+                            Text(isFollowed ? "Following" : "Follow")
+                                .font(.system(size: 13, weight: .semibold))
+                        }
+                        .foregroundStyle(isFollowed ? Color.pink : Color.primary)
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 9)
+                        .background(
+                            Capsule()
+                                .fill(isFollowed ? Color.pink.opacity(0.12) : Color.primary.opacity(0.08))
+                                .overlay(
+                                    Capsule()
+                                        .strokeBorder(isFollowed ? Color.pink.opacity(0.35) : Color.clear, lineWidth: 1)
+                                )
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .help(isFollowed ? "Unfollow" : "Follow")
                 }
                 .padding(.top, 4)
             }
@@ -384,6 +417,40 @@ public struct ArtistDetailView: View {
         .padding(.horizontal, 32)
     }
 
+    private func toggleFollowArtist() {
+        guard authManager.isLoggedIn else {
+            NotificationCenter.default.post(name: .openSignInSheet, object: nil)
+            return
+        }
+
+        let next = !isFollowed
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.75)) {
+            isFollowed = next
+            artist?.isFollowed = next
+        }
+
+        let channelId = artist?.channelId ?? initialChannelId ?? (artistId.starts(with: "UC") ? artistId : nil)
+        let params = next ? artist?.subscribeParams : artist?.unsubscribeParams
+
+        Task {
+            do {
+                try await InnerTubeService.shared.toggleFollowArtist(
+                    artistId: artistId,
+                    channelId: channelId,
+                    isFollowed: next,
+                    params: params
+                )
+                NotificationCenter.default.post(name: .libraryArtistsChanged, object: nil)
+            } catch {
+                print("Failed to toggle follow artist: \(error.localizedDescription)")
+                withAnimation {
+                    isFollowed = !next
+                    artist?.isFollowed = !next
+                }
+            }
+        }
+    }
+
     private func loadArtist() async {
         isLoading = true
         if var full = try? await InnerTubeService.shared.fetchArtist(id: artistId) {
@@ -394,6 +461,7 @@ public struct ArtistDetailView: View {
                 full.thumbnailUrl = applePic
             }
             self.artist = full
+            self.isFollowed = full.isFollowed
         }
         isLoading = false
     }

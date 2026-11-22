@@ -1,45 +1,63 @@
 import SwiftUI
 import AppKit
 
-extension NSScrollView {
-    open override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        self.autohidesScrollers = true
-        self.scrollerStyle = .overlay
-    }
-}
-
 // MARK: - Window Configuration
 struct WindowConfigurator: NSViewRepresentable {
     var showNowPlaying: Bool = false
     var theme: AppTheme = .system
 
+    class Coordinator {
+        var configured = false
+        var lastTheme: AppTheme?
+        var lastShowNowPlaying: Bool?
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
     func makeNSView(context: Context) -> NSView {
         let view = NSView()
-        DispatchQueue.main.async {
-            configure(view.window)
+        DispatchQueue.main.async { [weak view] in
+            guard let window = view?.window else { return }
+            self.configure(window, coordinator: context.coordinator)
         }
         return view
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {
-        DispatchQueue.main.async {
-            configure(nsView.window)
+        DispatchQueue.main.async { [weak nsView] in
+            guard let window = nsView?.window else { return }
+            self.configure(window, coordinator: context.coordinator)
         }
     }
 
-    private func configure(_ window: NSWindow?) {
-        guard let window = window, window.frame.origin.x > -1000 else { return }
-        window.styleMask.insert(.fullSizeContentView)
-        window.titleVisibility = .hidden
-        window.titlebarAppearsTransparent = true
-        window.titlebarSeparatorStyle = .none
-        window.toolbar?.showsBaselineSeparator = false
-        window.isMovableByWindowBackground = true
+    private func configure(_ window: NSWindow, coordinator: Coordinator) {
+        if !coordinator.configured, window.frame.origin.x > -1000 {
+            coordinator.configured = true
+            window.styleMask.insert(.fullSizeContentView)
+            window.titleVisibility = .hidden
+            window.titlebarAppearsTransparent = true
+            window.titlebarSeparatorStyle = .none
+            window.toolbar?.showsBaselineSeparator = false
+            window.isMovableByWindowBackground = true
+            window.isOpaque = false
+            window.backgroundColor = .clear
 
-        // Behind-window vibrancy requires isOpaque = false and clear background
-        window.isOpaque = false
-        window.backgroundColor = .clear
+            window.standardWindowButton(.closeButton)?.isHidden = false
+            window.standardWindowButton(.closeButton)?.superview?.isHidden = false
+            window.standardWindowButton(.miniaturizeButton)?.isHidden = false
+            window.standardWindowButton(.zoomButton)?.isHidden = false
+        }
+        updateAppearance(window, coordinator: coordinator)
+    }
+
+    private func updateAppearance(_ window: NSWindow, coordinator: Coordinator) {
+        if coordinator.lastShowNowPlaying == showNowPlaying && coordinator.lastTheme == theme {
+            return
+        }
+        coordinator.lastShowNowPlaying = showNowPlaying
+        coordinator.lastTheme = theme
 
         if showNowPlaying {
             window.appearance = NSAppearance(named: .darkAqua)
@@ -53,12 +71,6 @@ struct WindowConfigurator: NSViewRepresentable {
                 window.appearance = NSAppearance(named: .aqua)
             }
         }
-
-        // Standard window traffic lights (close, miniaturize, zoom) must ALWAYS be visible & enabled
-        window.standardWindowButton(.closeButton)?.isHidden = false
-        window.standardWindowButton(.closeButton)?.superview?.isHidden = false
-        window.standardWindowButton(.miniaturizeButton)?.isHidden = false
-        window.standardWindowButton(.zoomButton)?.isHidden = false
 
         // Hide any sidebar toggle accessories in titlebar when in Now Playing
         for vc in window.titlebarAccessoryViewControllers {
@@ -304,8 +316,23 @@ public struct MainView: View {
             SettingsView(showSignInSheet: $showSignInSheet)
                 .frame(minWidth: 740, idealWidth: 800, minHeight: 500, idealHeight: 560)
         }
-        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("OpenSettingsSheet"))) { _ in
+        .onReceive(NotificationCenter.default.publisher(for: .openSettingsSheet)) { _ in
             showSettingsSheet = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .openSignInSheet)) { _ in
+            showSignInSheet = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .openDetailItem)) { note in
+            if let item = note.object as? FeedItem {
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    activeDetailItem = item
+                }
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .closeActiveDetailItem)) { _ in
+            withAnimation(.easeInOut(duration: 0.15)) {
+                activeDetailItem = nil
+            }
         }
         .onChange(of: selection) { _, _ in
             withAnimation(.easeInOut(duration: 0.15)) {

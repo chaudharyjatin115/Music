@@ -49,7 +49,7 @@ public struct LibraryListView: View {
 
     public var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
+            LazyVStack(alignment: .leading, spacing: 24) {
                 if isLoading {
                     HStack {
                         Spacer()
@@ -67,6 +67,20 @@ public struct LibraryListView: View {
         .scrollIndicators(.hidden)
         .task(id: category) {
             await loadData()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .libraryArtistsChanged)) { _ in
+            if category == .artists {
+                Task {
+                    await loadData()
+                }
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .libraryPlaylistsChanged)) { _ in
+            if category == .playlists {
+                Task {
+                    await loadData()
+                }
+            }
         }
         .alert("New Playlist", isPresented: $isShowingCreatePlaylistAlert) {
             TextField("Playlist Title", text: $newPlaylistTitle)
@@ -104,7 +118,7 @@ public struct LibraryListView: View {
         case .downloaded:
             heroHeaderView(
                 title: "Downloaded",
-                subtitle: "\(downloadManager.downloadedSongs.count) Songs",
+                subtitle: "\(downloadManager.downloadedSongs.count) Songs • \(downloadManager.totalDownloadedSizeFormatted)",
                 icon: "arrow.down.circle.fill",
                 gradient: [Color.blue, Color.purple]
             )
