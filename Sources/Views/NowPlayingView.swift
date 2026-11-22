@@ -177,7 +177,7 @@ public struct NowPlayingView: View {
     private func artworkView(size: CGFloat) -> some View {
         ZStack {
             if !currentThumbUrl.isEmpty {
-                CachedAsyncImage(url: URL(string: currentThumbUrl.thumbnailSized(for: 512))) { phase in
+                CachedAsyncImage(url: URL(string: currentThumbUrl.thumbnailSized(for: 512)), targetDimension: 680) { phase in
                     if let image = phase.image {
                         image.resizable().scaledToFill().frame(width: size, height: size).clipped()
                     } else if phase.error != nil {
@@ -619,7 +619,7 @@ private struct NowPlayingQueueRow: View {
                 return "https://i.ytimg.com/vi/\(song.id)/hqdefault.jpg"
             }()
 
-            CachedAsyncImage(url: URL(string: thumbUrl.thumbnailSized(for: 100))) { phase in
+            CachedAsyncImage(url: URL(string: thumbUrl.thumbnailSized(for: 100)), targetDimension: 100) { phase in
                 if let img = phase.image {
                     img.resizable().aspectRatio(contentMode: .fill)
                 } else {
@@ -693,7 +693,8 @@ struct AmbientBlurBackgroundView: View, Equatable {
                         endPoint: .bottomTrailing
                     )
                 } else {
-                    CachedAsyncImage(url: URL(string: thumbUrl.thumbnailSized(for: 160))) { phase in
+                    let ambientURL = URL(string: thumbUrl.thumbnailSized(for: 100))
+                    CachedAsyncImage(url: ambientURL, targetDimension: 64) { phase in
                         if let image = phase.image {
                             image
                                 .resizable()
@@ -701,13 +702,13 @@ struct AmbientBlurBackgroundView: View, Equatable {
                                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                                 .saturation(1.7)
                                 .contrast(1.15)
-                                .blur(radius: 70)
+                                .blur(radius: 60)
                                 .scaleEffect(1.3)
                                 .opacity(0.75)
                         }
                     }
 
-                    CachedAsyncImage(url: URL(string: thumbUrl.thumbnailSized(for: 80))) { phase in
+                    CachedAsyncImage(url: ambientURL, targetDimension: 64) { phase in
                         if let image = phase.image {
                             image
                                 .resizable()
@@ -715,7 +716,7 @@ struct AmbientBlurBackgroundView: View, Equatable {
                                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                                 .saturation(1.9)
                                 .contrast(1.1)
-                                .blur(radius: 90)
+                                .blur(radius: 80)
                                 .scaleEffect(1.6)
                                 .rotationEffect(.degrees(180))
                                 .opacity(0.35)

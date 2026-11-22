@@ -98,7 +98,7 @@ public struct PlayerBarView: View {
                     }()
 
                     if !thumbUrl.isEmpty {
-                        CachedAsyncImage(url: URL(string: thumbUrl.thumbnailSized(for: 100))) { phase in
+                        CachedAsyncImage(url: URL(string: thumbUrl.thumbnailSized(for: 100)), targetDimension: 100) { phase in
                             if let img = phase.image {
                                 img.resizable()
                                    .scaledToFill()
@@ -443,7 +443,7 @@ struct QueueTrackRow: View {
         Button(action: onSelect) {
             HStack(spacing: 10) {
                 if !song.thumbnailUrl.isEmpty {
-                    CachedAsyncImage(url: URL(string: song.thumbnailSized(for: 100))) { phase in
+                    CachedAsyncImage(url: URL(string: song.thumbnailSized(for: 100)), targetDimension: 80) { phase in
                         if let img = phase.image {
                             img.resizable()
                                .scaledToFill()

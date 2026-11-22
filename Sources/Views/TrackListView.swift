@@ -86,7 +86,7 @@ public struct TrackListView: View {
                             if showArtwork {
                                 let thumb = !song.thumbnailUrl.isEmpty ? song.thumbnailUrl : (song.id.starts(with: "eclipse:") ? "" : "https://i.ytimg.com/vi/\(song.id)/hqdefault.jpg")
                                 if !thumb.isEmpty {
-                                    CachedAsyncImage(url: URL(string: thumb.thumbnailSized(for: 100))) { phase in
+                                    CachedAsyncImage(url: URL(string: thumb.thumbnailSized(for: 100)), targetDimension: 80) { phase in
                                         if let img = phase.image {
                                             img.resizable()
                                                .scaledToFill()

@@ -7,6 +7,20 @@
 
 import Foundation
 
+private extension Dictionary {
+    mutating func setBounded(_ value: Value, for key: Key, limit: Int = 100) {
+        if count >= limit { removeAll(keepingCapacity: true) }
+        self[key] = value
+    }
+}
+
+private extension Set {
+    mutating func insertBounded(_ member: Element, limit: Int = 100) {
+        if count >= limit { removeAll(keepingCapacity: true) }
+        insert(member)
+    }
+}
+
 public actor AppleMusicMetadataService {
     public static let shared = AppleMusicMetadataService()
 
@@ -57,20 +71,20 @@ public actor AppleMusicMetadataService {
         if isExplicitAlbumRequest {
             let targetAlbum = cleanAlbum.isEmpty ? cleanTitle : cleanAlbum
             if let art = await searchAlbumArtwork(albumName: targetAlbum, artistName: cleanArtist) {
-                artworkCache[cacheKey] = art
+                artworkCache.setBounded(art, for: cacheKey)
                 return art
             }
-            negativeArtworkCache.insert(cacheKey)
+            negativeArtworkCache.insertBounded(cacheKey)
             return nil
         }
 
         // Case B: Resolving a Track's album artwork (from AudioPlayerService)
         if let art = await searchTrackArtwork(trackTitle: cleanTitle, artistName: cleanArtist, albumName: cleanAlbum) {
-            artworkCache[cacheKey] = art
+            artworkCache.setBounded(art, for: cacheKey)
             return art
         }
 
-        negativeArtworkCache.insert(cacheKey)
+        negativeArtworkCache.insertBounded(cacheKey)
         return nil
     }
 
@@ -247,43 +261,41 @@ public actor AppleMusicMetadataService {
                 if imgUrl.contains("mzstatic.com") {
                     imgUrl = imgUrl.replacingOccurrences(of: "cw.png", with: "cc.png")
                                    .replacingOccurrences(of: "cw.jpg", with: "cc.jpg")
-                    artistPictureCache[cacheKey] = imgUrl
+                    artistPictureCache.setBounded(imgUrl, for: cacheKey)
                     return imgUrl
                 }
             }
 
-            negativeArtistCache.insert(cacheKey)
+            negativeArtistCache.insertBounded(cacheKey)
             return nil
         } catch {
-            negativeArtistCache.insert(cacheKey)
+            negativeArtistCache.insertBounded(cacheKey)
             return nil
         }
     }
 
     // MARK: - Matching Utilities
 
-    private func matchArtist(res: String, target: String) -> Bool {
+    private func matches(res: String, target: String) -> Bool {
         let r = normalize(res)
         let t = normalize(target)
         if r.isEmpty || t.isEmpty { return false }
-        if r == t || r.contains(t) || t.contains(r) { return true }
-        return false
+        return r == t || r.contains(t) || t.contains(r)
+    }
+
+    private func matchArtist(res: String, target: String) -> Bool {
+        matches(res: res, target: target)
     }
 
     private func matchTitle(res: String, target: String) -> Bool {
         let r = normalize(res)
         let t = normalize(target)
         if r.isEmpty || t.isEmpty { return false }
-        if r == t || r.hasPrefix(t) || t.hasPrefix(r) { return true }
-        return false
+        return r == t || r.hasPrefix(t) || t.hasPrefix(r)
     }
 
     private func matchAlbum(res: String, target: String) -> Bool {
-        let r = normalize(res)
-        let t = normalize(target)
-        if r.isEmpty || t.isEmpty { return false }
-        if r == t || r.contains(t) || t.contains(r) { return true }
-        return false
+        matches(res: res, target: target)
     }
 
     private func formatHighResArtwork(_ urlString: String) -> String {

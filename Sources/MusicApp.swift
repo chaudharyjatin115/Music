@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import Darwin
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -94,212 +95,67 @@ struct MusicApp: App {
     @StateObject private var authManager = AuthManager.shared
     @StateObject private var player = AudioPlayerService.shared
 
-    init() {
-        URLCache.shared = URLCache(memoryCapacity: 6 * 1024 * 1024, diskCapacity: 200 * 1024 * 1024)
+    private static var memoryPressureSource: DispatchSourceMemoryPressure?
 
-        for name in [NSApplication.didHideNotification, NSApplication.didResignActiveNotification] {
-            NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { _ in
-                URLCache.shared.removeAllCachedResponses()
-                ImageMemoryCache.shared.clear()
-            }
-        }
-        NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { _ in
-            URLCache.shared.memoryCapacity = 6 * 1024 * 1024
-        }
-
-        let pressureSource = DispatchSource.makeMemoryPressureSource(eventMask: [.warning, .critical], queue: .main)
-        pressureSource.setEventHandler {
-            URLCache.shared.removeAllCachedResponses()
-            ImageMemoryCache.shared.clear()
-        }
-        pressureSource.resume()
-
-        if CommandLine.arguments.contains("--test-now-playing") {
-            let testSong = Song(
-                id: "kJQP7kiw5Fk",
-                title: "Despacito",
-                artist: "Luis Fonsi & Daddy Yankee",
-                album: "Vida",
-                duration: 282,
-                thumbnailUrl: "https://i.ytimg.com/vi/kJQP7kiw5Fk/hqdefault.jpg"
-            )
-            AudioPlayerService.shared.currentSong = testSong
-            AudioPlayerService.shared.isPlaying = true
-            AudioPlayerService.shared.currentTime = 42
-            AudioPlayerService.shared.duration = 282
-            AudioPlayerService.shared.currentLyrics = [
-                LyricLine(startTimeMs: 0, text: "Ay, ¡Fonsi!, ¡D.Y.!"),
-                LyricLine(startTimeMs: 5000, text: "Oh, oh-no, oh-no, oh-yeah"),
-                LyricLine(startTimeMs: 12000, text: "Sí, sabes que ya llevo un rato mirándote"),
-                LyricLine(startTimeMs: 17000, text: "Tengo que bailar contigo hoy (¡D.Y.!)"),
-                LyricLine(startTimeMs: 23000, text: "Vi que tu mirada ya estaba llamándome"),
-                LyricLine(startTimeMs: 28000, text: "Muéstrame el camino que yo voy (¡Oh!)"),
-                LyricLine(startTimeMs: 34000, text: "Tú, tú eres el imán y yo soy el metal"),
-                LyricLine(startTimeMs: 38000, text: "Me voy acercando y voy armando el plan"),
-                LyricLine(startTimeMs: 42000, text: "Solo con pensarlo se acelera el pulso (¡Oh, yeah!)"),
-                LyricLine(startTimeMs: 47000, text: "Ya, ya me está gustando más de lo normal"),
-                LyricLine(startTimeMs: 52000, text: "Todos mis sentidos van pidiendo más"),
-                LyricLine(startTimeMs: 56000, text: "Esto hay que tomarlo sin ningún apuro"),
-                LyricLine(startTimeMs: 61000, text: "Despacito...")
-            ]
-            AudioPlayerService.shared.currentLyricIndex = 8
-        } else if CommandLine.arguments.contains("--test-playback") {
-            Task { @MainActor in
-                await Self.runAutomatedPlaybackSuite()
-            }
-        }
+    @MainActor
+    private static func purgeTransientMemory() {
+        URLCache.shared.removeAllCachedResponses()
+        URLCache.shared.memoryCapacity = 0
+        ImageMemoryCache.shared.clear()
+        malloc_zone_pressure_relief(nil, 0)
     }
 
     @MainActor
-    private static func runAutomatedPlaybackSuite() async {
-        print("========================================")
-        print("🚀 RUNNING FULL PLAYBACK VERIFICATION")
-        print("========================================")
-        fflush(stdout)
+    private static func restoreActiveMemory() {
+        URLCache.shared.memoryCapacity = 4 * 1024 * 1024
+    }
 
-        let p = AudioPlayerService.shared
+    init() {
+        URLCache.shared = URLCache(memoryCapacity: 4 * 1024 * 1024, diskCapacity: 200 * 1024 * 1024)
+        Self.setupMemoryManagement()
+    }
 
-        // Test Phase 1: Online YouTube Music Audio Streaming via WebAudioBridge
-        print("\n[Phase 1] Testing Online Streaming via WebAudioBridge (Despacito)...")
-        let streamSong = Song(
-            id: "kJQP7kiw5Fk",
-            title: "Despacito",
-            artist: "Luis Fonsi",
-            duration: 282,
-            thumbnailUrl: "https://i.ytimg.com/vi/kJQP7kiw5Fk/hqdefault.jpg"
-        )
-        p.play(song: streamSong)
-
-        var streamingStarted = false
-        for second in 1...25 {
-            try? await Task.sleep(nanoseconds: 1_000_000_000)
-            print(String(format: "  [@ %2ds] isPlaying=%@, isLoading=%@, currentTime=%.1fs, duration=%.1fs",
-                         second,
-                         p.isPlaying ? "true" : "false",
-                         p.isLoading ? "true" : "false",
-                         p.currentTime,
-                         p.duration))
-            fflush(stdout)
-            if p.isPlaying && p.currentTime > 0 {
-                streamingStarted = true
-                break
+    private static func setupMemoryManagement() {
+        let center = NotificationCenter.default
+        let backgroundEvents: [NSNotification.Name] = [
+            NSApplication.didHideNotification,
+            NSApplication.didResignActiveNotification,
+            NSWindow.didMiniaturizeNotification
+        ]
+        for name in backgroundEvents {
+            center.addObserver(forName: name, object: nil, queue: .main) { _ in
+                MainActor.assumeIsolated { purgeTransientMemory() }
             }
         }
 
-        if !streamingStarted {
-            print("❌ Streaming did not start within timeout.")
-            NSApplication.shared.terminate(nil)
-            return
-        }
-        print("✅ Online audio stream playback verified successfully!")
-
-        // Confirm active audio progression for 2 seconds
-        try? await Task.sleep(nanoseconds: 2_000_000_000)
-        print(String(format: "  Continuous stream progress: currentTime=%.1fs", p.currentTime))
-
-        // Test Phase 2: Pause
-        print("\n[Phase 2] Testing Pause...")
-        p.togglePlayPause()
-        try? await Task.sleep(nanoseconds: 1_200_000_000)
-        print(String(format: "  State after pause: isPlaying=%@", p.isPlaying ? "true" : "false"))
-        if !p.isPlaying {
-            print("✅ Pause functionality verified!")
-        }
-
-        // Test Phase 3: Resume
-        print("\n[Phase 3] Testing Resume...")
-        p.togglePlayPause()
-        try? await Task.sleep(nanoseconds: 1_500_000_000)
-        print(String(format: "  State after resume: isPlaying=%@, currentTime=%.1fs", p.isPlaying ? "true" : "false", p.currentTime))
-        if p.isPlaying {
-            print("✅ Resume functionality verified!")
-        }
-
-        // Test Phase 4: Seek
-        print("\n[Phase 4] Testing Seek to 60.0s...")
-        p.seek(to: 60.0)
-        try? await Task.sleep(nanoseconds: 1_500_000_000)
-        print(String(format: "  State after seek: currentTime=%.1fs", p.currentTime))
-        if p.currentTime >= 50.0 {
-            print("✅ Seek functionality verified!")
-        }
-
-        // Test Phase 5: Volume Adjustment
-        print("\n[Phase 5] Testing Volume Adjustment...")
-        let originalVol = p.volume
-        p.volume = 0.5
-        print(String(format: "  Set volume: %.1f", p.volume))
-        if p.volume == 0.5 {
-            print("✅ Volume adjustment verified!")
-        }
-        p.volume = originalVol
-
-        // Test Phase 6: Instant Track Switching
-        print("\n[Phase 6] Testing Track Switching (Blinding Lights)...")
-        let song2 = Song(
-            id: "4NRXx6U8ABQ",
-            title: "Blinding Lights",
-            artist: "The Weeknd",
-            duration: 200,
-            thumbnailUrl: "https://i.ytimg.com/vi/4NRXx6U8ABQ/hqdefault.jpg"
-        )
-        p.play(song: song2)
-        var switched = false
-        for second in 1...10 {
-            try? await Task.sleep(nanoseconds: 1_000_000_000)
-            print(String(format: "  [@ %2ds] track='%@', isPlaying=%@, currentTime=%.1fs",
-                         second,
-                         p.currentSong?.title ?? "None",
-                         p.isPlaying ? "true" : "false",
-                         p.currentTime))
-            fflush(stdout)
-            if p.currentSong?.id == song2.id && p.isPlaying {
-                switched = true
-                break
+        center.addObserver(forName: NSWindow.didChangeOcclusionStateNotification, object: nil, queue: .main) { _ in
+            MainActor.assumeIsolated {
+                let hasVisible = NSApplication.shared.windows.contains {
+                    $0.isVisible && !$0.isMiniaturized && $0.occlusionState.contains(.visible) && !($0 is NSPanel) && $0.className != "NSStatusBarWindow"
+                }
+                if !hasVisible { purgeTransientMemory() }
             }
         }
-        if switched {
-            print("✅ Instant track switching verified!")
+
+        let foregroundEvents: [NSNotification.Name] = [
+            NSApplication.didUnhideNotification,
+            NSApplication.didBecomeActiveNotification,
+            NSWindow.didDeminiaturizeNotification
+        ]
+        for name in foregroundEvents {
+            center.addObserver(forName: name, object: nil, queue: .main) { _ in
+                MainActor.assumeIsolated { restoreActiveMemory() }
+            }
         }
 
-        // Test Phase 7: Synced Lyrics
-        print("\n[Phase 7] Checking Synced Lyrics...")
-        try? await Task.sleep(nanoseconds: 1_000_000_000)
-        print("  Loaded lyric lines: \(p.currentLyrics.count)")
-        if !p.currentLyrics.isEmpty {
-            print("  First line: \"\(p.currentLyrics.first?.text ?? "")\" at \(p.currentLyrics.first?.startTimeSeconds ?? 0)s")
-            print("✅ Synced lyrics verified!")
-        } else {
-            print("ℹ️ Track lyrics fetched or unavailable from endpoint.")
+        let source = DispatchSource.makeMemoryPressureSource(eventMask: [.warning, .critical], queue: .main)
+        source.setEventHandler {
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated { purgeTransientMemory() }
+            }
         }
-
-        // Test Phase 8: Local AVPlayer Audio Playback
-        print("\n[Phase 8] Testing Local Offline Playback (AVPlayer)...")
-        let localSong = Song(
-            id: "local_test_1",
-            title: "Test Audio File",
-            artist: "Offline Local",
-            duration: 5,
-            thumbnailUrl: "",
-            localFilePath: "/tmp/test_local.m4a"
-        )
-        p.play(song: localSong)
-        try? await Task.sleep(nanoseconds: 1_500_000_000)
-        print(String(format: "  Local Playback State: isPlaying=%@, currentTime=%.1fs",
-                     p.isPlaying ? "true" : "false", p.currentTime))
-        if p.isPlaying || p.currentTime > 0 {
-            print("✅ Local AVPlayer playback verified successfully!")
-        } else {
-            print("⚠️ Local playback status note: \(p.isPlaying)")
-        }
-
-        print("\n========================================")
-        print("🎉 ALL PLAYBACK VERIFICATION PHASES PASSED!")
-        print("========================================")
-        fflush(stdout)
-
-        try? await Task.sleep(nanoseconds: 500_000_000)
-        NSApplication.shared.terminate(nil)
+        source.resume()
+        memoryPressureSource = source
     }
 
     var body: some Scene {

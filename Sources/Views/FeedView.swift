@@ -566,7 +566,7 @@ struct MockupSongRow: View {
             HStack(spacing: 12) {
                 // Thumbnail with Red Pause Button Overlay if Active
                 ZStack {
-                    CachedAsyncImage(url: URL(string: song.thumbnailSized(for: 100))) { img in
+                    CachedAsyncImage(url: URL(string: song.thumbnailSized(for: 100)), targetDimension: 80) { img in
                         img.resizable()
                            .aspectRatio(contentMode: .fill)
                     } placeholder: {

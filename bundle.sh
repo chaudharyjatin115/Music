@@ -72,7 +72,8 @@ WIDGET_RESOURCES="$WIDGET_CONTENTS/Resources"
 
 mkdir -p "$WIDGET_MACOS" "$WIDGET_RESOURCES"
 
-SWIFT_FLAGS="-parse-as-library -target x86_64-apple-macos14.0"
+ARCH="$(uname -m)"
+SWIFT_FLAGS="-parse-as-library -target ${ARCH}-apple-macos14.0"
 if [ "$CONFIG" == "release" ]; then
     SWIFT_FLAGS="$SWIFT_FLAGS -O"
 fi

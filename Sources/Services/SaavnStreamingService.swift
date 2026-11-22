@@ -39,6 +39,20 @@ public struct SaavnStream: Sendable {
     }
 }
 
+private extension Dictionary {
+    mutating func setBounded(_ value: Value, for key: Key, limit: Int = 60) {
+        if count >= limit { removeAll(keepingCapacity: true) }
+        self[key] = value
+    }
+}
+
+private extension Set {
+    mutating func insertBounded(_ member: Element, limit: Int = 60) {
+        if count >= limit { removeAll(keepingCapacity: true) }
+        insert(member)
+    }
+}
+
 public actor SaavnStreamingService {
     public static let shared = SaavnStreamingService()
 
@@ -81,26 +95,26 @@ public actor SaavnStreamingService {
             if let fallbackSongs = await searchSaavnSongs(query: cleanTitle), !fallbackSongs.isEmpty {
                 if let match = matchBestSong(songs: fallbackSongs, targetTitle: cleanTitle, targetArtist: cleanArtist, targetDuration: duration) {
                     if let stream = await resolveStreamFromCandidate(match) {
-                        streamCache[cacheKey] = stream
+                        streamCache.setBounded(stream, for: cacheKey)
                         return stream
                     }
                 }
             }
-            negativeCache.insert(cacheKey)
+            negativeCache.insertBounded(cacheKey)
             return nil
         }
 
         guard let bestMatch = matchBestSong(songs: songs, targetTitle: cleanTitle, targetArtist: cleanArtist, targetDuration: duration) else {
-            negativeCache.insert(cacheKey)
+            negativeCache.insertBounded(cacheKey)
             return nil
         }
 
         if let stream = await resolveStreamFromCandidate(bestMatch) {
-            streamCache[cacheKey] = stream
+            streamCache.setBounded(stream, for: cacheKey)
             return stream
         }
 
-        negativeCache.insert(cacheKey)
+        negativeCache.insertBounded(cacheKey)
         return nil
     }
 

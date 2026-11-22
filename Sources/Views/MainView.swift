@@ -81,17 +81,13 @@ public struct MainView: View {
     @State private var searchQuery: String = ""
     @State private var showSignInSheet = false
     @State private var showSettingsSheet = false
-    @State private var showNowPlaying = CommandLine.arguments.contains("--test-now-playing")
+    @State private var showNowPlaying = false
     @State private var activeDetailItem: FeedItem? = nil
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
 
     @ObservedObject var authManager = AuthManager.shared
 
-    public init() {
-        if CommandLine.arguments.contains("--test-now-playing") {
-            _showNowPlaying = State(initialValue: true)
-        }
-    }
+    public init() {}
 
     public var body: some View {
         ZStack {

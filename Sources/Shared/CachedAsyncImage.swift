@@ -7,8 +7,8 @@ final class ImageMemoryCache: @unchecked Sendable {
     private let cache = NSCache<NSURL, NSImage>()
 
     private init() {
-        cache.countLimit = 80
-        cache.totalCostLimit = 30 * 1024 * 1024
+        cache.countLimit = 40
+        cache.totalCostLimit = 16 * 1024 * 1024
     }
 
     func image(for url: URL) -> NSImage? {
@@ -42,6 +42,7 @@ public enum CachedImagePhase {
 
 public struct CachedAsyncImage<Content: View, Placeholder: View>: View {
     let url: URL?
+    let targetDimension: CGFloat?
     private let phaseContent: ((CachedImagePhase) -> Content)?
     private let imageContent: ((Image) -> Content)?
     private let placeholderContent: (() -> Placeholder)?
@@ -50,10 +51,12 @@ public struct CachedAsyncImage<Content: View, Placeholder: View>: View {
 
     public init(
         url: URL?,
+        targetDimension: CGFloat? = nil,
         @ViewBuilder content: @escaping (Image) -> Content,
         @ViewBuilder placeholder: @escaping () -> Placeholder
     ) {
         self.url = url
+        self.targetDimension = targetDimension
         self.imageContent = content
         self.placeholderContent = placeholder
         self.phaseContent = nil
@@ -64,9 +67,11 @@ public struct CachedAsyncImage<Content: View, Placeholder: View>: View {
 
     public init(
         url: URL?,
+        targetDimension: CGFloat? = nil,
         @ViewBuilder content: @escaping (CachedImagePhase) -> Content
     ) where Placeholder == EmptyView {
         self.url = url
+        self.targetDimension = targetDimension
         self.phaseContent = content
         self.imageContent = nil
         self.placeholderContent = nil
@@ -100,23 +105,50 @@ public struct CachedAsyncImage<Content: View, Placeholder: View>: View {
                 phase = .success(Image(nsImage: cached))
                 return
             }
+            let targetDim = targetDimension ?? Self.targetDimension(for: url)
             guard let (data, resp) = try? await NetworkSession.shared.data(from: url),
                   (resp as? HTTPURLResponse)?.statusCode == 200,
-                  let img = Self.downsampleImage(data: data, maxDimension: 512) else {
+                  let img = Self.downsampleImage(data: data, maxDimension: targetDim) else {
                 phase = .failure(URLError(.badServerResponse))
                 return
             }
-            ImageMemoryCache.shared.insert(img, for: url, cost: data.count)
+            let bitmapBytes: Int
+            if let rep = img.representations.first {
+                bitmapBytes = rep.pixelsWide * rep.pixelsHigh * 4
+            } else {
+                bitmapBytes = Int(img.size.width * img.size.height * 4)
+            }
+            ImageMemoryCache.shared.insert(img, for: url, cost: max(bitmapBytes, data.count))
             phase = .success(Image(nsImage: img))
         }
     }
 
-    private static nonisolated func downsampleImage(data: Data, maxDimension: CGFloat = 512) -> NSImage? {
+    private static nonisolated func targetDimension(for url: URL?) -> CGFloat {
+        guard let urlStr = url?.absoluteString else { return 300 }
+        for prefix in ["=w", "=s"] {
+            if let range = urlStr.range(of: prefix) {
+                let digits = urlStr[range.upperBound...].prefix(while: \.isNumber)
+                if let d = Double(digits) {
+                    return d <= 120 ? max(CGFloat(d), 64) : min(CGFloat(d) * 1.5, 768)
+                }
+            }
+        }
+        if let match = urlStr.range(of: "(\\d+)x(\\d+)", options: .regularExpression) {
+            let parts = urlStr[match].split(separator: "x")
+            if let first = parts.first, let d = Double(first) {
+                return d <= 120 ? max(CGFloat(d), 64) : min(CGFloat(d) * 1.5, 768)
+            }
+        }
+        return 300
+    }
+
+    private static nonisolated func downsampleImage(data: Data, maxDimension: CGFloat = 360) -> NSImage? {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil) else {
             return NSImage(data: data)
         }
         let options: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailFromImageIfAbsent: true,
             kCGImageSourceCreateThumbnailWithTransform: true,
             kCGImageSourceShouldCacheImmediately: true,
             kCGImageSourceThumbnailMaxPixelSize: maxDimension

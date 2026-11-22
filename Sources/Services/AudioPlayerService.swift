@@ -92,6 +92,9 @@ public final class AudioPlayerService: ObservableObject {
     private var lastResolvedStream: ResolvedStream? = nil
     private var lastAdvancedSongId: String? = nil
     private var lastWatchtimePing: TimeInterval = 0
+    private var lastWidgetSongId: String? = nil
+    private var lastWidgetIsPlaying: Bool? = nil
+    private var cachedWidgetArtworkData: Data? = nil
 
     private init() {
         if let data = UserDefaults.standard.data(forKey: "lastPlayedPlaylist"),
@@ -702,6 +705,9 @@ public final class AudioPlayerService: ObservableObject {
 
     private func updateNowPlayingInfo() {
         guard let song = currentSong else {
+            lastWidgetSongId = nil
+            lastWidgetIsPlaying = nil
+            cachedWidgetArtworkData = nil
             MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
             MPNowPlayingInfoCenter.default().playbackState = .stopped
             WidgetBridge.writeState(WidgetPlaybackSnapshot())
@@ -718,17 +724,32 @@ public final class AudioPlayerService: ObservableObject {
             MPNowPlayingInfoPropertyPlaybackRate: isPlaying ? 1.0 : 0.0
         ]
 
-        var artworkData: Data? = nil
-        if let existingArtwork = MPNowPlayingInfoCenter.default().nowPlayingInfo?[MPMediaItemPropertyArtwork] as? MPMediaItemArtwork {
+        let existingArtwork = MPNowPlayingInfoCenter.default().nowPlayingInfo?[MPMediaItemPropertyArtwork] as? MPMediaItemArtwork
+        if let existingArtwork {
             info[MPMediaItemPropertyArtwork] = existingArtwork
-            if let image = existingArtwork.image(at: CGSize(width: 300, height: 300)) {
-                artworkData = image.tiffRepresentation
+        }
+
+        let songChanged = (song.id != lastWidgetSongId)
+        if songChanged {
+            lastWidgetSongId = song.id
+            if let existingArtwork,
+               let image = existingArtwork.image(at: CGSize(width: 300, height: 300)),
+               let tiff = image.tiffRepresentation,
+               let rep = NSBitmapImageRep(data: tiff),
+               let jpeg = rep.representation(using: .jpeg, properties: [.compressionFactor: 0.85]) {
+                cachedWidgetArtworkData = jpeg
+            } else {
+                cachedWidgetArtworkData = nil
             }
         }
 
         let nsDict = NSDictionary(dictionary: info)
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nsDict as? [String: Any]
         MPNowPlayingInfoCenter.default().playbackState = isPlaying ? .playing : .paused
+
+        let artworkData = cachedWidgetArtworkData
+        let isPlayingChanged = (lastWidgetIsPlaying != isPlaying)
+        lastWidgetIsPlaying = isPlaying
 
         let snapshot = WidgetPlaybackSnapshot(
             title: song.title,
@@ -740,6 +761,8 @@ public final class AudioPlayerService: ObservableObject {
             hasArtwork: artworkData != nil
         )
         WidgetBridge.writeState(snapshot, artworkData: artworkData)
-        WidgetCenter.shared.reloadAllTimelines()
+        if songChanged || isPlayingChanged {
+            WidgetCenter.shared.reloadAllTimelines()
+        }
     }
 }

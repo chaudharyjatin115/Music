@@ -9,7 +9,11 @@ public final class DownloadManager: ObservableObject {
 
     private let downloadsDirectory: URL
     private let indexFileUrl: URL
-    private let session = URLSession(configuration: .default)
+    private let session: URLSession = {
+        let config = URLSessionConfiguration.ephemeral
+        config.urlCache = nil
+        return URLSession(configuration: config)
+    }()
 
     private init() {
         let fileManager = FileManager.default

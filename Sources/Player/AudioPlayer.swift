@@ -116,8 +116,8 @@ final class AudioPlayer: AudioOutput {
             asset.resourceLoader.setDelegate(proxiedLoader, queue: proxiedLoader.queue)
         }
         let item = AVPlayerItem(asset: asset)
-        // 12s forward buffer
-        item.preferredForwardBufferDuration = 12.0
+        // 8s forward buffer
+        item.preferredForwardBufferDuration = 8.0
         item.canUseNetworkResourcesForLiveStreamingWhilePaused = false
         installEqualizer(on: item, asset: asset)
         return item
@@ -153,8 +153,8 @@ final class AudioPlayer: AudioOutput {
     func preload(url: URL, metadata: NowPlayingMetadata) {
         guard url != preloadedURL else { return }
         let item = makeItem(url: url)
-        // Preloaded standby item buffers only 4s for instant start without duplicating RAM
-        item.preferredForwardBufferDuration = 4.0
+        // Standby buffer for instant transitions
+        item.preferredForwardBufferDuration = 2.5
         idle.pause()
         idle.replaceCurrentItem(with: item)
         idle.volume = 0
@@ -171,7 +171,7 @@ final class AudioPlayer: AudioOutput {
         active.pause()
         active.replaceCurrentItem(with: nil)
         active = idle
-        active.currentItem?.preferredForwardBufferDuration = 12.0
+        active.currentItem?.preferredForwardBufferDuration = 8.0
         preloadedURL = nil
         activate(item: active.currentItem!, metadata: metadata)
     }
@@ -228,7 +228,7 @@ final class AudioPlayer: AudioOutput {
         let incoming = idle
         incoming.volume = 0
         active = incoming
-        active.currentItem?.preferredForwardBufferDuration = 12.0
+        active.currentItem?.preferredForwardBufferDuration = 8.0
         activate(item: incoming.currentItem!, metadata: metadata, volume: 0)
         startFade(outgoing: outgoing, incoming: incoming, seconds: duration, generation: generation)
     }
