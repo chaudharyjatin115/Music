@@ -471,6 +471,7 @@ public struct NowPlayingView: View {
                     )
                     .onChange(of: player.currentLyricIndex) { _, newIndex in
                         guard AppSettings.shared.autoScrollLyrics else { return }
+                        guard newIndex >= 0 else { return }
                         if AppSettings.shared.reduceMotion {
                             proxy.scrollTo(newIndex, anchor: .center)
                         } else {
@@ -764,12 +765,13 @@ private struct LyricLineRow: View {
 
     var body: some View {
         Button(action: onSelect) {
-            Text(line.text)
+            let isBlank = line.text.trimmingCharacters(in: .whitespaces).isEmpty
+            Text(isBlank ? "•••" : line.text)
                 .font(.system(
                     size: isCurrent ? activeSize : inactiveSize,
                     weight: isCurrent ? .bold : .medium
                 ))
-                .foregroundStyle(isCurrent ? Color.white : Color.white.opacity(0.38))
+                .foregroundStyle(isCurrent ? Color.white : (isBlank ? Color.white.opacity(0.18) : Color.white.opacity(0.38)))
                 .shadow(
                     color: isCurrent && !reduceMotion ? Color.white.opacity(0.35) : Color.clear,
                     radius: 8,

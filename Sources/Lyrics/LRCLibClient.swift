@@ -18,6 +18,11 @@ nonisolated final class LRCLibClient: LyricsProviding, Sendable {
     }
 
     private struct LRCLibTrack: Decodable {
+        let id: Int?
+        let trackName: String?
+        let artistName: String?
+        let albumName: String?
+        let duration: Double?
         let plainLyrics: String?
         let syncedLyrics: String?
         let instrumental: Bool?
@@ -43,15 +48,52 @@ nonisolated final class LRCLibClient: LyricsProviding, Sendable {
         if let duration = query.duration, duration > 0 {
             items.append(URLQueryItem(name: "duration", value: String(Int(duration.rounded()))))
         }
-        guard let track: LRCLibTrack = try await get("get", query: items) else { return nil }
-        return lyrics(from: track)
+        if let track: LRCLibTrack = try await get("get", query: items),
+           let lyrics = self.lyrics(from: track), !lyrics.lines.isEmpty {
+            return lyrics
+        }
+
+        // Try exact match without album name if album-specific get failed
+        if !query.album.isEmpty {
+            var relaxedItems = [
+                URLQueryItem(name: "track_name", value: query.title),
+                URLQueryItem(name: "artist_name", value: query.artist),
+            ]
+            if let duration = query.duration, duration > 0 {
+                relaxedItems.append(URLQueryItem(name: "duration", value: String(Int(duration.rounded()))))
+            }
+            if let track: LRCLibTrack = try await get("get", query: relaxedItems),
+               let lyrics = self.lyrics(from: track), !lyrics.lines.isEmpty {
+                return lyrics
+            }
+        }
+
+        return nil
     }
 
     private func searchMatch(_ query: LyricsQuery) async throws -> Lyrics? {
         let q = [query.title, query.artist].filter { !$0.isEmpty }.joined(separator: " ")
         let items = [URLQueryItem(name: "q", value: q)]
-        guard let results: [LRCLibTrack] = try await get("search", query: items) else { return nil }
-        return results.lazy.compactMap { self.lyrics(from: $0) }.first
+        guard let results: [LRCLibTrack] = try await get("search", query: items), !results.isEmpty else { return nil }
+
+        // Prioritize tracks that have syncedLyrics and match duration closest to playback
+        let syncedResults = results.filter { ($0.syncedLyrics?.isEmpty == false) }
+        let pool = syncedResults.isEmpty ? results : syncedResults
+
+        if let targetDuration = query.duration, targetDuration > 0 {
+            let sorted = pool.sorted { a, b in
+                let diffA = abs((a.duration ?? 0) - targetDuration)
+                let diffB = abs((b.duration ?? 0) - targetDuration)
+                return diffA < diffB
+            }
+            for candidate in sorted {
+                if let lyrics = self.lyrics(from: candidate) {
+                    return lyrics
+                }
+            }
+        }
+
+        return pool.lazy.compactMap { self.lyrics(from: $0) }.first
     }
 
     private func get<T: Decodable>(_ endpoint: String, query items: [URLQueryItem]) async throws -> T? {

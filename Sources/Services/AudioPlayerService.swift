@@ -227,7 +227,7 @@ public final class AudioPlayerService: ObservableObject {
         self.isLoading = true
         self.isPlaying = false
         self.currentLyrics = []
-        self.currentLyricIndex = 0
+        self.currentLyricIndex = -1
 
         // Determine Lossless Audio Status
         if resolvedSong.id.starts(with: "eclipse:") {
@@ -251,7 +251,9 @@ public final class AudioPlayerService: ObservableObject {
 
         Task {
             let lyrics = await LyricsService.shared.fetchLyrics(song: resolvedSong)
+            guard self.currentSong?.id == resolvedSong.id else { return }
             self.currentLyrics = lyrics
+            self.updateCurrentLyric(for: self.currentTime)
         }
 
         // Notify ListenBrainz and Last.fm
@@ -613,28 +615,16 @@ public final class AudioPlayerService: ObservableObject {
 
     private func updateCurrentLyric(for time: TimeInterval) {
         guard !currentLyrics.isEmpty else { return }
-        let idx = currentLyricIndex
-        if idx >= 0 && idx < currentLyrics.count {
-            let start = currentLyrics[idx].startTimeSeconds
-            let nextStart = idx + 1 < currentLyrics.count ? currentLyrics[idx + 1].startTimeSeconds : Double.greatestFiniteMagnitude
-            if time >= start && time < nextStart { return }
-        }
-        if idx + 1 < currentLyrics.count && time >= currentLyrics[idx + 1].startTimeSeconds {
-            let nextNextStart = idx + 2 < currentLyrics.count ? currentLyrics[idx + 2].startTimeSeconds : Double.greatestFiniteMagnitude
-            if time < nextNextStart {
-                currentLyricIndex = idx + 1
-                return
-            }
-        }
+        var targetIndex = -1
         for (i, line) in currentLyrics.enumerated() {
             if line.startTimeSeconds <= time {
-                if i == currentLyrics.count - 1 || currentLyrics[i + 1].startTimeSeconds > time {
-                    if self.currentLyricIndex != i {
-                        self.currentLyricIndex = i
-                    }
-                    break
-                }
+                targetIndex = i
+            } else {
+                break
             }
+        }
+        if currentLyricIndex != targetIndex {
+            currentLyricIndex = targetIndex
         }
     }
 

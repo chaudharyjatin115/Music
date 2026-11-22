@@ -404,7 +404,7 @@ final class AudioPlayer: AudioOutput {
     }
 
     private func addPeriodicObserver(to player: AVPlayer) {
-        let interval = CMTime(seconds: 0.5, preferredTimescale: 600)
+        let interval = CMTime(seconds: 0.05, preferredTimescale: 600)
         let observer = player.addPeriodicTimeObserver(
             forInterval: interval,
             queue: .main

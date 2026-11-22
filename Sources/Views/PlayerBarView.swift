@@ -332,13 +332,14 @@ struct LyricsPopoverView: View {
                     } else {
                         VStack(alignment: .leading, spacing: 18) {
                             ForEach(Array(player.currentLyrics.enumerated()), id: \.offset) { index, line in
-                                Text(line.text)
+                                let isBlank = line.text.trimmingCharacters(in: .whitespaces).isEmpty
+                                Text(isBlank ? "•••" : line.text)
                                     .font(.system(
                                         size: index == player.currentLyricIndex ? 18 : 15,
                                         weight: index == player.currentLyricIndex ? .bold : .medium
                                     ))
                                     .foregroundStyle(
-                                        index == player.currentLyricIndex ? Color.pink : Color.secondary.opacity(0.6)
+                                        index == player.currentLyricIndex ? Color.pink : Color.secondary.opacity(isBlank ? 0.3 : 0.6)
                                     )
                                     .scaleEffect(index == player.currentLyricIndex ? 1.02 : 1.0, anchor: .leading)
                                     .animation(.spring(response: 0.35, dampingFraction: 0.7), value: player.currentLyricIndex)
@@ -353,6 +354,7 @@ struct LyricsPopoverView: View {
                     }
                 }
                 .onChange(of: player.currentLyricIndex) { _, newIndex in
+                    guard newIndex >= 0 else { return }
                     withAnimation {
                         proxy.scrollTo(newIndex, anchor: .center)
                     }

@@ -678,16 +678,7 @@ public actor InnerTubeService {
         guard let lyrics = try? await client.lyrics(for: query) else {
             return []
         }
-
-        if !lyrics.lines.isEmpty {
-            return lyrics.lines
-        }
-
-        // Split plain lyrics
-        let lines = lyrics.text.components(separatedBy: "\n").filter { !$0.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines).isEmpty }
-        return lines.enumerated().map { index, lineText in
-            LyricLine(time: Double(index * 4), text: lineText, id: index)
-        }
+        return lyrics.lines
     }
 
     // MARK: - Helpers
