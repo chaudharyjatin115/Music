@@ -276,7 +276,7 @@ nonisolated enum EntityPageParser {
                     bannerURL: immersive.thumbnail?.musicThumbnailRenderer?.bestURL,
                     monthlyAudience: immersive.monthlyListenerCount?.text,
                     pronouns: immersive.pronouns?.text,
-                    subscription: parseSubscription(immersive.subscriptionButton),
+                    subscription: parseSubscription(immersive.subscriptionButton, fallbackChannelId: fallback.browseId),
                     radioPlaylistId: radioPlaylistId,
                     startRadioPlaylistId: immersive.startRadioButton?.buttonRenderer?
                         .navigationEndpoint?.playlistId
@@ -294,7 +294,7 @@ nonisolated enum EntityPageParser {
                 description: "",
                 thumbnailURL: visual.foregroundThumbnail?.musicThumbnailRenderer?.bestURL
                     ?? fallback.thumbnailURL,
-                content: .profile(ArtistPageInfo(subscription: parseSubscription(visual.subscriptionButton)))
+                content: .profile(ArtistPageInfo(subscription: parseSubscription(visual.subscriptionButton, fallbackChannelId: fallback.browseId)))
             )
         }
 
@@ -404,7 +404,8 @@ nonisolated enum EntityPageParser {
     // MARK: - Subscription
 
     private static func parseSubscription(
-        _ button: EntityBrowseResponse.HeaderContainer.ImmersiveHeader.SubscriptionButton?
+        _ button: EntityBrowseResponse.HeaderContainer.ImmersiveHeader.SubscriptionButton?,
+        fallbackChannelId: String? = nil
     ) -> ArtistSubscription? {
         guard let renderer = button?.subscribeButtonRenderer else { return nil }
 
@@ -422,9 +423,10 @@ nonisolated enum EntityPageParser {
             }
         }
 
-        guard let channelId else { return nil }
+        let resolvedChannelId = channelId ?? (fallbackChannelId?.starts(with: "UC") == true ? fallbackChannelId : nil)
+        guard let resolvedChannelId else { return nil }
         return ArtistSubscription(
-            channelId: channelId,
+            channelId: resolvedChannelId,
             isSubscribed: renderer.subscribed ?? false,
             subscribeParams: subscribeParams,
             unsubscribeParams: unsubscribeParams,

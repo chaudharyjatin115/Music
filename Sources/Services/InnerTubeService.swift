@@ -64,6 +64,7 @@ public actor InnerTubeService {
     public static let shared = InnerTubeService()
 
     private let client = InnerTubeClient.shared
+    private var cachedFollowedArtistIds = Set<String>()
 
     private init() {}
 
@@ -404,17 +405,62 @@ public actor InnerTubeService {
         let topSongs = page.tracks.map { Song(track: $0) }
 
         var albums: [Album] = []
+        var singles: [Album] = []
+        var featuredPlaylists: [Playlist] = []
+        var similarArtists: [Artist] = []
+
         for shelf in page.shelves {
-            for item in shelf.items where item.kind == .album {
-                albums.append(Album(
-                    id: item.browseId ?? "",
-                    title: item.title,
-                    artist: name,
-                    year: item.subtitle,
-                    thumbnailUrl: item.thumbnailURL?.absoluteString ?? thumb,
-                    songs: []
-                ))
+            let shelfTitle = shelf.title.lowercased()
+            for item in shelf.items {
+                switch item.kind {
+                case .album:
+                    let album = Album(
+                        id: item.browseId ?? "",
+                        title: item.title,
+                        artist: name,
+                        year: item.subtitle,
+                        thumbnailUrl: item.thumbnailURL?.absoluteString ?? thumb,
+                        songs: []
+                    )
+                    if shelfTitle.contains("single") || item.subtitle.localizedCaseInsensitiveContains("single") {
+                        singles.append(album)
+                    } else {
+                        albums.append(album)
+                    }
+                case .playlist:
+                    featuredPlaylists.append(Playlist(
+                        id: item.playlistId ?? item.browseId ?? "",
+                        title: item.title,
+                        description: item.subtitle,
+                        author: item.subtitle,
+                        thumbnailUrl: item.thumbnailURL?.absoluteString ?? thumb,
+                        songCount: 0,
+                        songs: []
+                    ))
+                case .artist, .profile:
+                    similarArtists.append(Artist(
+                        id: item.browseId ?? "",
+                        name: item.title,
+                        thumbnailUrl: item.thumbnailURL?.absoluteString ?? "",
+                        subscribers: item.subtitle.isEmpty ? nil : item.subtitle,
+                        bio: nil,
+                        topSongs: [],
+                        albums: []
+                    ))
+                default:
+                    break
+                }
             }
+        }
+
+        let sub = page.header.artistPage?.subscription
+        let channelId = sub?.channelId ?? (id.starts(with: "UC") ? id : nil)
+        var isFollowed = sub?.isSubscribed ?? false
+        if sub == nil && !isFollowed {
+            isFollowed = cachedFollowedArtistIds.contains(id) || (channelId != nil && cachedFollowedArtistIds.contains(channelId!))
+        } else if isFollowed {
+            cachedFollowedArtistIds.insert(id)
+            if let cid = channelId { cachedFollowedArtistIds.insert(cid) }
         }
 
         return Artist(
@@ -424,8 +470,34 @@ public actor InnerTubeService {
             subscribers: subscribers,
             bio: page.header.description.isEmpty ? nil : page.header.description,
             topSongs: topSongs,
-            albums: albums
+            albums: albums,
+            singles: singles,
+            featuredPlaylists: featuredPlaylists,
+            similarArtists: similarArtists,
+            isFollowed: isFollowed,
+            channelId: channelId,
+            subscribeParams: sub?.subscribeParams,
+            unsubscribeParams: sub?.unsubscribeParams
         )
+    }
+
+    public func toggleFollowArtist(artistId: String, channelId: String? = nil, isFollowed: Bool, params: String? = nil) async throws {
+        let targetChannelId = channelId ?? artistId
+        try await client.setSubscription(channelId: targetChannelId, params: params, subscribe: isFollowed)
+
+        if isFollowed {
+            cachedFollowedArtistIds.insert(artistId)
+            if let cid = channelId { cachedFollowedArtistIds.insert(cid) }
+        } else {
+            cachedFollowedArtistIds.remove(artistId)
+            if let cid = channelId { cachedFollowedArtistIds.remove(cid) }
+        }
+    }
+
+    public func isArtistFollowed(id: String, channelId: String? = nil) -> Bool {
+        if cachedFollowedArtistIds.contains(id) { return true }
+        if let cid = channelId, cachedFollowedArtistIds.contains(cid) { return true }
+        return false
     }
 
     // MARK: - Library & User Data
@@ -478,6 +550,26 @@ public actor InnerTubeService {
         }
 
         return playlists
+    }
+
+    public func addToPlaylist(playlistId: String, videoId: String) async throws {
+        try await client.addToPlaylist(playlistId: playlistId, videoIds: [videoId])
+    }
+
+    public func createPlaylist(title: String, videoIds: [String] = []) async throws -> String {
+        try await client.createPlaylist(title: title, videoIds: videoIds)
+    }
+
+    public func deletePlaylist(playlistId: String) async throws {
+        try await client.deletePlaylist(playlistId: playlistId)
+    }
+
+    public func renamePlaylist(playlistId: String, title: String) async throws {
+        try await client.renamePlaylist(playlistId: playlistId, title: title)
+    }
+
+    public func fetchAddToPlaylistOptions(videoId: String) async throws -> [EditablePlaylist] {
+        try await client.addToPlaylistOptions(videoId: videoId)
     }
 
     public func fetchSavedAlbums() async throws -> [Album] {
@@ -576,7 +668,9 @@ public actor InnerTubeService {
                         subscribers: item.subtitle.isEmpty ? nil : item.subtitle,
                         bio: nil,
                         topSongs: [],
-                        albums: []
+                        albums: [],
+                        isFollowed: true,
+                        channelId: bid.starts(with: "UC") ? bid : nil
                     ))
                 }
             }
@@ -631,7 +725,9 @@ public actor InnerTubeService {
                             subscribers: item.subtitle.isEmpty ? nil : item.subtitle,
                             bio: nil,
                             topSongs: [],
-                            albums: []
+                            albums: [],
+                            isFollowed: true,
+                            channelId: bid.starts(with: "UC") ? bid : nil
                         ))
                     }
                 }
@@ -639,7 +735,14 @@ public actor InnerTubeService {
         }
 
         var seen = Set<String>()
-        return artists.filter { seen.insert($0.id).inserted }
+        let unique = artists.filter { seen.insert($0.id).inserted }
+        for a in unique {
+            cachedFollowedArtistIds.insert(a.id)
+            if let cid = a.channelId {
+                cachedFollowedArtistIds.insert(cid)
+            }
+        }
+        return unique
     }
 
     // MARK: - User Listening History

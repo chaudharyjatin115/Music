@@ -8,11 +8,18 @@
 
 import Foundation
 
-struct EditablePlaylist: Identifiable, Sendable, Equatable {
-    let id: String
-    var title: String
-    var subtitle: String
-    var thumbnailURL: URL?
+public struct EditablePlaylist: Identifiable, Sendable, Equatable {
+    public let id: String
+    public var title: String
+    public var subtitle: String
+    public var thumbnailURL: URL?
+
+    public init(id: String, title: String, subtitle: String = "", thumbnailURL: URL? = nil) {
+        self.id = id
+        self.title = title
+        self.subtitle = subtitle
+        self.thumbnailURL = thumbnailURL
+    }
 }
 
 extension String {
