@@ -312,4 +312,13 @@ final class DiscordRPC: @unchecked Sendable {
         }
         return ok
     }
+
+    deinit {
+        reconnectTimer?.cancel()
+        reconnectTimer = nil
+        if fd >= 0 {
+            close(fd)
+            fd = -1
+        }
+    }
 }

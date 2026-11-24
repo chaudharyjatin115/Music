@@ -6,7 +6,12 @@ public final class ListenBrainzService: ObservableObject {
 
     @Published public var apiToken: String = "" {
         didSet {
-            UserDefaults.standard.set(apiToken, forKey: tokenKey)
+            if apiToken.isEmpty {
+                Keychain.delete(service: keychainService, account: keychainAccount)
+            } else {
+                Keychain.setString(apiToken, service: keychainService, account: keychainAccount)
+            }
+            UserDefaults.standard.removeObject(forKey: tokenKey)
             if !apiToken.isEmpty {
                 validateToken()
             } else {
@@ -20,6 +25,8 @@ public final class ListenBrainzService: ObservableObject {
     @Published public var username: String = ""
     @Published public var lastScrobbleStatus: String = ""
 
+    private let keychainService = "com.music.app"
+    private let keychainAccount = "listenbrainz_token"
     private let tokenKey = "com.music.app.listenbrainz_token"
     private let baseUrl = "https://api.listenbrainz.org/1"
     private let session = URLSession(configuration: .default)
@@ -28,7 +35,16 @@ public final class ListenBrainzService: ObservableObject {
     private var hasSubmittedSingleListen: Bool = false
 
     private init() {
-        self.apiToken = UserDefaults.standard.string(forKey: tokenKey) ?? ""
+        if let token = Keychain.getString(service: keychainService, account: keychainAccount), !token.isEmpty {
+            self.apiToken = token
+            UserDefaults.standard.removeObject(forKey: tokenKey)
+        } else if let legacyToken = UserDefaults.standard.string(forKey: tokenKey), !legacyToken.isEmpty {
+            self.apiToken = legacyToken
+            Keychain.setString(legacyToken, service: keychainService, account: keychainAccount)
+            UserDefaults.standard.removeObject(forKey: tokenKey)
+        } else {
+            self.apiToken = ""
+        }
         if !apiToken.isEmpty {
             validateToken()
         }

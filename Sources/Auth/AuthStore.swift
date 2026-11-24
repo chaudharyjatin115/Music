@@ -30,6 +30,7 @@ final class AuthStore {
 
     private let defaults: UserDefaults
     private static let accountKey = "auth.account"
+    @ObservationIgnored nonisolated(unsafe) private var sessionExpiredObserver: (any NSObjectProtocol)?
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -39,12 +40,18 @@ final class AuthStore {
             state = .signedIn
         }
         // A 401 on an authenticated request (posted by InnerTubeClient) means the session expired.
-        NotificationCenter.default.addObserver(
+        sessionExpiredObserver = NotificationCenter.default.addObserver(
             forName: .ytmSessionExpired, object: nil, queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.noteSessionExpired() }
         }
         Task { await refresh() }
+    }
+
+    deinit {
+        if let sessionExpiredObserver {
+            NotificationCenter.default.removeObserver(sessionExpiredObserver)
+        }
     }
 
     private func noteSessionExpired() {

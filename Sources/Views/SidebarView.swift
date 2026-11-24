@@ -5,7 +5,7 @@ public struct SidebarView: View {
     @Binding var showSignInSheet: Bool
     @Binding var showSettingsSheet: Bool
 
-    @StateObject private var authManager = AuthManager.shared
+    @ObservedObject private var authManager = AuthManager.shared
     @State private var userPlaylists: [Playlist] = []
     @State private var isShowingCreatePlaylistAlert = false
     @State private var newPlaylistTitle = ""

@@ -27,15 +27,33 @@ public final class AuthManager: ObservableObject {
     }
 
     public func loadStoredSession() {
+        self.userDisplayName = UserDefaults.standard.string(forKey: userDisplayNameKey) ?? "YouTube Music User"
+        self.userEmail = UserDefaults.standard.string(forKey: userEmailKey) ?? ""
+        self.userAvatarUrl = UserDefaults.standard.string(forKey: userAvatarUrlKey) ?? ""
+        self.userChannelId = UserDefaults.standard.string(forKey: userChannelIdKey) ?? ""
+
+        let service = "moe.tenshii.YT-Music"
+        let account = "youtube-credentials"
+
+        if let data = Keychain.get(service: service, account: account),
+           let stored = try? JSONDecoder().decode(Credentials.self, from: data),
+           stored.isUsable {
+            self.cookies = stored.cookies
+            self.isLoggedIn = true
+            UserDefaults.standard.removeObject(forKey: cookiesKey)
+            return
+        }
+
         if let data = UserDefaults.standard.data(forKey: cookiesKey),
            let savedCookies = try? JSONDecoder().decode([String: String].self, from: data),
            !savedCookies.isEmpty {
             self.cookies = savedCookies
             self.isLoggedIn = savedCookies["SAPISID"] != nil || savedCookies["__Secure-3PAPISID"] != nil || savedCookies["SID"] != nil
-            self.userDisplayName = UserDefaults.standard.string(forKey: userDisplayNameKey) ?? "YouTube Music User"
-            self.userEmail = UserDefaults.standard.string(forKey: userEmailKey) ?? ""
-            self.userAvatarUrl = UserDefaults.standard.string(forKey: userAvatarUrlKey) ?? ""
-            self.userChannelId = UserDefaults.standard.string(forKey: userChannelIdKey) ?? ""
+            UserDefaults.standard.removeObject(forKey: cookiesKey)
+            let creds = Credentials(cookies: savedCookies)
+            if let enc = try? JSONEncoder().encode(creds) {
+                Keychain.set(enc, service: service, account: account)
+            }
         } else {
             self.isLoggedIn = false
             self.cookies = [:]
@@ -50,17 +68,13 @@ public final class AuthManager: ObservableObject {
         } else if let creds = await CredentialStore.shared.credentials, creds.isUsable {
             self.cookies = creds.cookies
             self.isLoggedIn = true
-            if let data = try? JSONEncoder().encode(creds.cookies) {
-                UserDefaults.standard.set(data, forKey: cookiesKey)
-            }
         }
+        UserDefaults.standard.removeObject(forKey: cookiesKey)
     }
 
     public func saveCookies(_ newCookies: [String: String]) {
         self.cookies = newCookies
-        if let data = try? JSONEncoder().encode(newCookies) {
-            UserDefaults.standard.set(data, forKey: cookiesKey)
-        }
+        UserDefaults.standard.removeObject(forKey: cookiesKey)
         self.isLoggedIn = newCookies["SAPISID"] != nil || newCookies["__Secure-3PAPISID"] != nil || newCookies["SID"] != nil
 
         Task {

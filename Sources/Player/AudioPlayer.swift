@@ -92,6 +92,7 @@ final class AudioPlayer: AudioOutput {
     @ObservationIgnored private var metadata = NowPlayingMetadata(title: "", artist: "", album: "", artworkURL: nil)
     @ObservationIgnored private var artwork: MPMediaItemArtwork?
     @ObservationIgnored private var loadedArtworkURL: URL?
+    @ObservationIgnored private var artworkTask: Task<Void, Never>?
 
     init() {
         active = playerA
@@ -130,9 +131,10 @@ final class AudioPlayer: AudioOutput {
         Task { @MainActor [weak item] in
             guard let track = try? await asset.loadTracks(withMediaType: .audio).first
             else { return }
+            guard let item else { return }
             let processor = EqualizerProcessor(box: box, spectrum: meter)
             if let mix = makeEqualizerAudioMix(for: track, processor: processor) {
-                item?.audioMix = mix
+                item.audioMix = mix
             }
         }
     }
@@ -318,6 +320,12 @@ final class AudioPlayer: AudioOutput {
 
     func stop() {
         cancelFade()
+        artworkTask?.cancel()
+        artworkTask = nil
+        if let endObserver {
+            NotificationCenter.default.removeObserver(endObserver)
+            self.endObserver = nil
+        }
         active.pause()
         active.replaceCurrentItem(with: nil)
         clearIdlePlayer()
@@ -376,11 +384,15 @@ final class AudioPlayer: AudioOutput {
     }
 
     private func loadArtwork(_ url: URL?) {
+        artworkTask?.cancel()
+        artworkTask = nil
         guard let url, url != loadedArtworkURL else { return }
         loadedArtworkURL = url
-        Task {
+        artworkTask = Task { @MainActor [weak self] in
             guard let (data, _) = try? await URLSession.shared.data(from: url) else { return }
+            guard !Task.isCancelled, let self, self.loadedArtworkURL == url else { return }
             let (downscaledData, size) = downscaleArtwork(data: data, maxDimension: 512)
+            guard !Task.isCancelled, self.loadedArtworkURL == url else { return }
             self.artwork = makeMediaArtwork(data: downscaledData, size: size)
             self.updateNowPlayingInfo()
         }

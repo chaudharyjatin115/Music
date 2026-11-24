@@ -31,10 +31,21 @@ public final class LastfmService: ObservableObject {
 
     private let apiKeyDefaultsKey = "com.music.app.lastfm_api_key"
     private let apiSecretDefaultsKey = "com.music.app.lastfm_api_secret"
+    private let keychainService = "com.music.app"
+    private let keychainAccount = "lastfm_api_secret"
 
     private init() {
         self.apiKey = UserDefaults.standard.string(forKey: apiKeyDefaultsKey) ?? ""
-        self.apiSecret = UserDefaults.standard.string(forKey: apiSecretDefaultsKey) ?? ""
+        if let secret = Keychain.getString(service: keychainService, account: keychainAccount), !secret.isEmpty {
+            self.apiSecret = secret
+            UserDefaults.standard.removeObject(forKey: apiSecretDefaultsKey)
+        } else if let legacySecret = UserDefaults.standard.string(forKey: apiSecretDefaultsKey), !legacySecret.isEmpty {
+            self.apiSecret = legacySecret
+            Keychain.setString(legacySecret, service: keychainService, account: keychainAccount)
+            UserDefaults.standard.removeObject(forKey: apiSecretDefaultsKey)
+        } else {
+            self.apiSecret = ""
+        }
         self.session = LastfmClient.loadSession()
         if let session = self.session {
             self.isConnected = true
@@ -55,7 +66,8 @@ public final class LastfmService: ObservableObject {
         self.apiKey = key
         self.apiSecret = sec
         UserDefaults.standard.set(key, forKey: apiKeyDefaultsKey)
-        UserDefaults.standard.set(sec, forKey: apiSecretDefaultsKey)
+        Keychain.setString(sec, service: keychainService, account: keychainAccount)
+        UserDefaults.standard.removeObject(forKey: apiSecretDefaultsKey)
 
         self.statusMessage = ""
         self.isWorking = true
@@ -118,6 +130,8 @@ public final class LastfmService: ObservableObject {
         self.pendingToken = nil
         self.statusMessage = "Disconnected from Last.fm"
         self.lastScrobbleStatus = ""
+        Keychain.delete(service: keychainService, account: keychainAccount)
+        UserDefaults.standard.removeObject(forKey: apiSecretDefaultsKey)
         Task {
             await client.disconnect()
         }

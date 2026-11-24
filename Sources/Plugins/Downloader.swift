@@ -121,12 +121,22 @@ final class Downloader {
         let resolved = try await resolver.audioStream(videoId: job.videoId, preferences: preferences)
         try Task.checkCancellation()
 
-        let destination = directory.appendingPathComponent(Self.fileName(for: job))
+        let destination = directory.appendingPathComponent(Self.fileName(for: job)).standardizedFileURL
+        guard destination.path.hasPrefix(directory.standardizedFileURL.path) else {
+            throw URLError(.badURL)
+        }
+
         let (bytes, response) = try await NetworkSession.shared.bytes(from: resolved.url)
         let total = response.expectedContentLength
 
-        var buffer = Data()
-        if total > 0 { buffer.reserveCapacity(Int(total)) }
+        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        FileManager.default.createFile(atPath: tempURL.path, contents: nil)
+        let handle = try FileHandle(forWritingTo: tempURL)
+        defer {
+            try? handle.close()
+            try? FileManager.default.removeItem(at: tempURL)
+        }
+
         var received: Int64 = 0
         var chunk = Data()
         chunk.reserveCapacity(1 << 16)
@@ -135,16 +145,19 @@ final class Downloader {
             chunk.append(byte)
             received += 1
             if chunk.count >= (1 << 16) {
-                buffer.append(chunk)
+                try handle.write(contentsOf: chunk)
                 chunk.removeAll(keepingCapacity: true)
                 progress(total > 0 ? Double(received) / Double(total) : nil)
             }
         }
-        buffer.append(chunk)
+        if !chunk.isEmpty {
+            try handle.write(contentsOf: chunk)
+        }
+        try handle.close()
         try Task.checkCancellation()
 
         try? FileManager.default.removeItem(at: destination)
-        try buffer.write(to: destination, options: .atomic)
+        try FileManager.default.moveItem(at: tempURL, to: destination)
         return destination
     }
 
@@ -158,8 +171,12 @@ final class Downloader {
     }
 
     private static func sanitize(_ name: String) -> String {
-        name.components(separatedBy: CharacterSet(charactersIn: "/:\\?%*|\"<>"))
+        let invalid = CharacterSet(charactersIn: "/:\\?%*|\"<>")
+            .union(.controlCharacters)
+            .union(.newlines)
+        return name.components(separatedBy: invalid)
             .joined(separator: "_")
+            .replacingOccurrences(of: "..", with: "_")
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }

@@ -9,16 +9,40 @@ import Foundation
 import Security
 
 nonisolated enum Keychain {
-    static func set(_ data: Data, service: String, account: String) {
-        delete(service: service, account: account)
+    @discardableResult
+    static func set(_ data: Data, service: String, account: String) -> Bool {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
             kSecValueData as String: data,
-            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock,
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
         ]
-        SecItemAdd(query as CFDictionary, nil)
+        let status = SecItemAdd(query as CFDictionary, nil)
+        if status == errSecDuplicateItem {
+            let updateQuery: [String: Any] = [
+                kSecClass as String: kSecClassGenericPassword,
+                kSecAttrService as String: service,
+                kSecAttrAccount as String: account,
+            ]
+            let updateAttrs: [String: Any] = [
+                kSecValueData as String: data,
+                kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
+            ]
+            return SecItemUpdate(updateQuery as CFDictionary, updateAttrs as CFDictionary) == errSecSuccess
+        }
+        return status == errSecSuccess
+    }
+
+    @discardableResult
+    static func setString(_ value: String, service: String, account: String) -> Bool {
+        guard let data = value.data(using: .utf8) else { return false }
+        return set(data, service: service, account: account)
+    }
+
+    static func getString(service: String, account: String) -> String? {
+        guard let data = get(service: service, account: account) else { return nil }
+        return String(data: data, encoding: .utf8)
     }
 
     static func get(service: String, account: String) -> Data? {
@@ -36,12 +60,13 @@ nonisolated enum Keychain {
         return result as? Data
     }
 
-    static func delete(service: String, account: String) {
+    @discardableResult
+    static func delete(service: String, account: String) -> Bool {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
         ]
-        SecItemDelete(query as CFDictionary)
+        return SecItemDelete(query as CFDictionary) == errSecSuccess
     }
 }

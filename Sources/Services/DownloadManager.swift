@@ -48,6 +48,16 @@ public final class DownloadManager: ObservableObject {
         activeDownloads.contains(songId)
     }
 
+    private static func sanitizeFilenameComponent(_ string: String) -> String {
+        let invalidCharacters = CharacterSet(charactersIn: "/\\?%*|\":<>")
+            .union(.controlCharacters)
+            .union(.newlines)
+        var sanitized = string.components(separatedBy: invalidCharacters).joined(separator: "_")
+        sanitized = sanitized.replacingOccurrences(of: "..", with: "_")
+        sanitized = sanitized.trimmingCharacters(in: .whitespacesAndNewlines)
+        return sanitized.isEmpty ? "Unknown" : sanitized
+    }
+
     public func downloadSong(_ song: Song) {
         guard !isDownloaded(songId: song.id), !isDownloading(songId: song.id) else { return }
         activeDownloads.insert(song.id)
@@ -62,10 +72,16 @@ public final class DownloadManager: ObservableObject {
 
                 let (tempUrl, _) = try await session.download(from: streamUrl)
 
-                let safeTitle = song.title.replacingOccurrences(of: "/", with: "-")
-                let safeArtist = song.artist.replacingOccurrences(of: "/", with: "-")
+                let safeTitle = Self.sanitizeFilenameComponent(song.title)
+                let safeArtist = Self.sanitizeFilenameComponent(song.artist)
                 let destFileName = "\(safeArtist) - \(safeTitle).m4a"
-                let destUrl = downloadsDirectory.appendingPathComponent(destFileName)
+                let destUrl = downloadsDirectory.appendingPathComponent(destFileName).standardizedFileURL
+
+                guard destUrl.path.hasPrefix(downloadsDirectory.standardizedFileURL.path) else {
+                    try? FileManager.default.removeItem(at: tempUrl)
+                    self.activeDownloads.remove(song.id)
+                    return
+                }
 
                 try? FileManager.default.removeItem(at: destUrl)
                 try FileManager.default.moveItem(at: tempUrl, to: destUrl)

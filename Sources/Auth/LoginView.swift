@@ -79,6 +79,13 @@ private struct LoginWebView: NSViewRepresentable {
 
     func updateNSView(_ nsView: AuthWebView, context: Context) {}
 
+    static func dismantleNSView(_ nsView: AuthWebView, coordinator: Coordinator) {
+        nsView.stopLoading()
+        nsView.navigationDelegate = nil
+        nsView.onCookiesCaptured = nil
+        nsView.loadHTMLString("", baseURL: nil)
+    }
+
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     final class Coordinator: NSObject, WKNavigationDelegate {

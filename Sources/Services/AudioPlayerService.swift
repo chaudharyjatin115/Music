@@ -225,6 +225,8 @@ public final class AudioPlayerService: ObservableObject {
         lastAdvancedSongId = nil
         lastWatchtimePing = 0
         activeStreamTask?.cancel()
+        preloadTask?.cancel()
+        preloadTask = nil
 
         var resolvedSong = song
         if resolvedSong.thumbnailUrl.isEmpty {

@@ -3,7 +3,7 @@ import WebKit
 
 public struct WebSignInView: View {
     @Environment(\.dismiss) private var dismiss
-    @StateObject private var authManager = AuthManager.shared
+    @ObservedObject private var authManager = AuthManager.shared
     @State private var isLoading = true
     @State private var selectedTab: Int = 0
     @State private var manualCookiesInput = ""
@@ -153,6 +153,7 @@ public struct WebSignInView: View {
             authManager.saveCookies(dict)
             let name = manualNameInput.isEmpty ? "Google Account" : manualNameInput
             authManager.updateUserInfo(name: name, avatarUrl: "")
+            manualCookiesInput = ""
             dismiss()
         } else {
             manualError = "Could not find a valid SAPISID or SID cookie. Please make sure to copy the full cookie header from music.youtube.com."

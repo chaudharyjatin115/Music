@@ -4,13 +4,15 @@ import Darwin
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    private var notificationObservers: [any NSObjectProtocol] = []
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApplication.shared.setActivationPolicy(.regular)
         NSApplication.shared.activate(ignoringOtherApps: true)
         VerticalScrollForwarding.install()
         MediaKeyManager.shared.start()
 
-        DistributedNotificationCenter.default().addObserver(
+        let toggleObs = DistributedNotificationCenter.default().addObserver(
             forName: WidgetBridge.toggleNotification,
             object: nil,
             queue: .main
@@ -19,8 +21,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 AudioPlayerService.shared.togglePlayPause()
             }
         }
+        notificationObservers.append(toggleObs)
 
-        DistributedNotificationCenter.default().addObserver(
+        let nextObs = DistributedNotificationCenter.default().addObserver(
             forName: WidgetBridge.nextNotification,
             object: nil,
             queue: .main
@@ -29,8 +32,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 AudioPlayerService.shared.next()
             }
         }
+        notificationObservers.append(nextObs)
 
-        DistributedNotificationCenter.default().addObserver(
+        let prevObs = DistributedNotificationCenter.default().addObserver(
             forName: WidgetBridge.previousNotification,
             object: nil,
             queue: .main
@@ -39,12 +43,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 AudioPlayerService.shared.previous()
             }
         }
+        notificationObservers.append(prevObs)
 
         if let icon = Bundle.main.image(forResource: "AppIcon") ?? NSImage(contentsOfFile: Bundle.main.bundlePath + "/Contents/Resources/AppIcon.icns") {
             NSApplication.shared.applicationIconImage = icon
         }
 
         configureAllWindows()
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        for obs in notificationObservers {
+            DistributedNotificationCenter.default().removeObserver(obs)
+        }
+        notificationObservers.removeAll()
     }
 
     func configureAllWindows() {
