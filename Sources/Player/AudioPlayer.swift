@@ -39,6 +39,7 @@ final class AudioPlayer: AudioOutput {
     @ObservationIgnored let spectrum: SpectrumAnalyzer? = nil
 
     private(set) var isPlaying = false
+    var hasActiveItem: Bool { active.currentItem != nil }
     private(set) var isBuffering = false
     /// True only once AVPlayer really advances; `load()` marks playing before the stream flows.
     var isActuallyPlaying: Bool { isPlaying && active.timeControlStatus == .playing }

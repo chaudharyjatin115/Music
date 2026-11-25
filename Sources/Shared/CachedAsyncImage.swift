@@ -22,6 +22,34 @@ final class ImageMemoryCache: @unchecked Sendable {
     func clear() {
         cache.removeAllObjects()
     }
+
+    func findImage(forSong song: Song) -> NSImage? {
+        let base = song.thumbnailUrl
+        if base.isEmpty { return nil }
+        let candidates = [
+            base,
+            base.thumbnailSized(for: 500),
+            base.thumbnailSized(for: 512),
+            base.thumbnailSized(for: 600),
+            base.thumbnailSized(for: 440),
+            base.thumbnailSized(for: 320),
+            base.thumbnailSized(for: 200),
+            base.thumbnailSized(for: 100),
+            base.thumbnailSized(for: 80)
+        ]
+        for c in candidates {
+            if let u = URL(string: c), let img = image(for: u) {
+                return img
+            }
+        }
+        return nil
+    }
+
+    func jpegData(for image: NSImage) -> Data? {
+        guard let tiff = image.tiffRepresentation,
+              let rep = NSBitmapImageRep(data: tiff) else { return nil }
+        return rep.representation(using: .jpeg, properties: [.compressionFactor: 0.85])
+    }
 }
 
 public enum CachedImagePhase {

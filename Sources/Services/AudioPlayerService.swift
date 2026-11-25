@@ -122,8 +122,8 @@ public final class AudioPlayerService: ObservableObject {
     private var lastAdvancedSongId: String? = nil
     private var lastWatchtimePing: TimeInterval = 0
     private var lastWidgetSongId: String? = nil
-    private var lastWidgetIsPlaying: Bool? = nil
     private var cachedWidgetArtworkData: Data? = nil
+    private var widgetArtworkTask: Task<Void, Never>? = nil
 
     private init() {
         if let data = UserDefaults.standard.data(forKey: "lastPlayedPlaylist"),
@@ -262,9 +262,18 @@ public final class AudioPlayerService: ObservableObject {
         self.currentTime = 0
         self.duration = resolvedSong.duration
         self.isLoading = true
-        self.isPlaying = false
+        self.isPlaying = true
         self.currentLyrics = []
         self.currentLyricIndex = -1
+
+        if let cachedImg = ImageMemoryCache.shared.findImage(forSong: resolvedSong),
+           let jpeg = ImageMemoryCache.shared.jpegData(for: cachedImg) {
+            self.cachedWidgetArtworkData = jpeg
+        } else {
+            self.cachedWidgetArtworkData = nil
+        }
+
+        self.updateNowPlayingInfo()
 
         // Determine Lossless Audio Status
         if resolvedSong.id.starts(with: "eclipse:") {
@@ -297,12 +306,15 @@ public final class AudioPlayerService: ObservableObject {
         ListenBrainzService.shared.onTrackStart(song: resolvedSong)
         LastfmService.shared.onTrackStart(song: resolvedSong)
 
-        // Check offline local playback
+        // Check offline local playback (restricted to validated files inside Downloaded folder)
         let localPath: String? = {
-            if let path = resolvedSong.localFilePath, FileManager.default.fileExists(atPath: path) { return path }
+            if let path = resolvedSong.localFilePath,
+               DownloadManager.shared.isInsideDownloadsDirectory(path),
+               FileManager.default.fileExists(atPath: path) { return path }
             if DownloadManager.shared.isDownloaded(songId: resolvedSong.id),
                let downloaded = DownloadManager.shared.downloadedSongs.first(where: { $0.id == resolvedSong.id }),
                let path = downloaded.localFilePath,
+               DownloadManager.shared.isInsideDownloadsDirectory(path),
                FileManager.default.fileExists(atPath: path) { return path }
             return nil
         }()
@@ -409,6 +421,19 @@ public final class AudioPlayerService: ObservableObject {
     private func preloadNextTrack() {
         preloadTask?.cancel()
         guard let nextSong = queue.first else { return }
+
+        // Pre-fetch artwork for upcoming song in queue
+        if let thumbUrl = URL(string: nextSong.thumbnailUrl.thumbnailSized(for: 500)) {
+            if ImageMemoryCache.shared.image(for: thumbUrl) == nil {
+                Task.detached(priority: .utility) {
+                    if let (data, resp) = try? await NetworkSession.shared.data(from: thumbUrl),
+                       (resp as? HTTPURLResponse)?.statusCode == 200,
+                       let img = NSImage(data: data) {
+                        ImageMemoryCache.shared.insert(img, for: thumbUrl, cost: data.count)
+                    }
+                }
+            }
+        }
 
         preloadTask = Task { @MainActor [weak self] in
             guard let self = self else { return }
@@ -552,6 +577,19 @@ public final class AudioPlayerService: ObservableObject {
         guard now - lastToggleTime > 0.35 else { return }
         lastToggleTime = now
 
+        if !audioPlayer.hasActiveItem {
+            if let song = currentSong {
+                play(song: song)
+                return
+            } else if let first = queue.first {
+                play(song: first)
+                return
+            } else if let first = lastPlayedPlaylist?.songs.first {
+                play(song: first)
+                return
+            }
+        }
+
         audioPlayer.togglePlayPause()
         isPlaying = audioPlayer.isPlaying
         updateNowPlayingInfo()
@@ -669,6 +707,7 @@ public final class AudioPlayerService: ObservableObject {
         audioPlayer.seek(to: time)
         self.currentTime = time
         updateCurrentLyric(for: time)
+        updateNowPlayingInfo()
     }
 
     public func addToQueue(song: Song) {
@@ -769,12 +808,11 @@ public final class AudioPlayerService: ObservableObject {
     private func updateNowPlayingInfo() {
         guard let song = currentSong else {
             lastWidgetSongId = nil
-            lastWidgetIsPlaying = nil
             cachedWidgetArtworkData = nil
             MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
             MPNowPlayingInfoCenter.default().playbackState = .stopped
             WidgetBridge.writeState(WidgetPlaybackSnapshot())
-            WidgetCenter.shared.reloadAllTimelines()
+            WidgetCenter.shared.reloadTimelines(ofKind: "MusicWidget")
             return
         }
 
@@ -795,15 +833,15 @@ public final class AudioPlayerService: ObservableObject {
         let songChanged = (song.id != lastWidgetSongId)
         if songChanged {
             lastWidgetSongId = song.id
-            if let existingArtwork,
-               let image = existingArtwork.image(at: CGSize(width: 300, height: 300)),
-               let tiff = image.tiffRepresentation,
-               let rep = NSBitmapImageRep(data: tiff),
-               let jpeg = rep.representation(using: .jpeg, properties: [.compressionFactor: 0.85]) {
+            if let cachedImg = ImageMemoryCache.shared.findImage(forSong: song),
+               let jpeg = ImageMemoryCache.shared.jpegData(for: cachedImg) {
                 cachedWidgetArtworkData = jpeg
             } else {
                 cachedWidgetArtworkData = nil
             }
+            fetchAndCacheWidgetArtwork(for: song)
+        } else if cachedWidgetArtworkData == nil {
+            fetchAndCacheWidgetArtwork(for: song)
         }
 
         let nsDict = NSDictionary(dictionary: info)
@@ -811,8 +849,6 @@ public final class AudioPlayerService: ObservableObject {
         MPNowPlayingInfoCenter.default().playbackState = isPlaying ? .playing : .paused
 
         let artworkData = cachedWidgetArtworkData
-        let isPlayingChanged = (lastWidgetIsPlaying != isPlaying)
-        lastWidgetIsPlaying = isPlaying
 
         let snapshot = WidgetPlaybackSnapshot(
             title: song.title,
@@ -821,11 +857,56 @@ public final class AudioPlayerService: ObservableObject {
             isPlaying: isPlaying,
             duration: max(duration, 0.0),
             currentTime: max(currentTime, 0.0),
-            hasArtwork: artworkData != nil
+            hasArtwork: artworkData != nil,
+            volume: volume
         )
         WidgetBridge.writeState(snapshot, artworkData: artworkData)
-        if songChanged || isPlayingChanged {
-            WidgetCenter.shared.reloadAllTimelines()
+        WidgetCenter.shared.reloadTimelines(ofKind: "MusicWidget")
+    }
+
+    private func fetchAndCacheWidgetArtwork(for song: Song) {
+        widgetArtworkTask?.cancel()
+        widgetArtworkTask = Task(priority: .userInitiated) { @MainActor [weak self] in
+            guard let self = self else { return }
+            var rawData: Data? = self.cachedWidgetArtworkData
+
+            if rawData == nil {
+                if let cachedImg = ImageMemoryCache.shared.findImage(forSong: song),
+                   let jpeg = ImageMemoryCache.shared.jpegData(for: cachedImg) {
+                    rawData = jpeg
+                }
+            }
+
+            if rawData == nil {
+                let candidates = [
+                    song.thumbnailUrl.thumbnailSized(for: 500),
+                    song.thumbnailUrl.thumbnailSized(for: 512),
+                    song.thumbnailUrl
+                ]
+                for cand in candidates {
+                    guard let thumbUrl = URL(string: cand) else { continue }
+                    if let cached = ImageMemoryCache.shared.image(for: thumbUrl),
+                       let jpeg = ImageMemoryCache.shared.jpegData(for: cached) {
+                        rawData = jpeg
+                        break
+                    } else if let (data, resp) = try? await NetworkSession.shared.data(from: thumbUrl),
+                              (resp as? HTTPURLResponse)?.statusCode == 200,
+                              let image = NSImage(data: data) {
+                        ImageMemoryCache.shared.insert(image, for: thumbUrl, cost: data.count)
+                        if let jpeg = ImageMemoryCache.shared.jpegData(for: image) {
+                            rawData = jpeg
+                            break
+                        }
+                    }
+                }
+            }
+
+            guard !Task.isCancelled, let data = rawData, self.currentSong?.id == song.id else { return }
+            self.cachedWidgetArtworkData = data
+            var current = WidgetBridge.readState()
+            current.hasArtwork = true
+            WidgetBridge.writeState(current, artworkData: data)
+            WidgetCenter.shared.reloadTimelines(ofKind: "MusicWidget")
         }
     }
 }

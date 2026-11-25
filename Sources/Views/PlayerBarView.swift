@@ -271,6 +271,16 @@ public struct PlayerBarView: View {
                 }
 
                 Button {
+                    VinylWidgetWindowController.shared.toggle()
+                } label: {
+                    Image(systemName: "opticaldisc")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Color.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("Toggle Vinyl Paper Widget")
+
+                Button {
                     withAnimation(.spring(response: 0.38, dampingFraction: 0.8)) {
                         showNowPlaying.toggle()
                     }
@@ -282,7 +292,7 @@ public struct PlayerBarView: View {
                 .buttonStyle(.plain)
                 .help("Open Full Now Playing")
             }
-            .frame(width: 230)
+            .frame(width: 260)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)

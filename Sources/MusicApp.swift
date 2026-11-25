@@ -5,20 +5,75 @@ import Darwin
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var notificationObservers: [any NSObjectProtocol] = []
+    private var lastProcessedCommandId: String = ""
+    private var launchTimestamp: TimeInterval = Date().timeIntervalSince1970
+
+    private func processPendingWidgetCommand(fallbackAction: String? = nil) {
+        if let cmd = WidgetBridge.readLatestCommand(),
+           cmd.timestamp >= launchTimestamp,
+           cmd.id != lastProcessedCommandId {
+            lastProcessedCommandId = cmd.id
+            Self.executeWidgetAction(cmd.action)
+            return
+        }
+        if let action = fallbackAction {
+            Self.executeWidgetAction(action)
+        }
+    }
+
+    private static func executeWidgetAction(_ action: String) {
+        switch action {
+        case "toggle":
+            AudioPlayerService.shared.togglePlayPause()
+        case "next":
+            AudioPlayerService.shared.next()
+        case "previous":
+            AudioPlayerService.shared.previous()
+        default:
+            break
+        }
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        launchTimestamp = Date().timeIntervalSince1970
         NSApplication.shared.setActivationPolicy(.regular)
         NSApplication.shared.activate(ignoringOtherApps: true)
         VerticalScrollForwarding.install()
         MediaKeyManager.shared.start()
 
+        let darwinCenter = CFNotificationCenterGetDarwinNotifyCenter()
+        for name in [WidgetBridge.toggleDarwinNotification, WidgetBridge.nextDarwinNotification, WidgetBridge.previousDarwinNotification] {
+            CFNotificationCenterAddObserver(
+                darwinCenter,
+                Unmanaged.passUnretained(self).toOpaque(),
+                { _, observer, name, _, _ in
+                    guard let observer, let raw = name?.rawValue as? String else { return }
+                    let delegate = Unmanaged<AppDelegate>.fromOpaque(observer).takeUnretainedValue()
+                    let fallback: String? = {
+                        switch raw {
+                        case WidgetBridge.toggleDarwinNotification: return "toggle"
+                        case WidgetBridge.nextDarwinNotification: return "next"
+                        case WidgetBridge.previousDarwinNotification: return "previous"
+                        default: return nil
+                        }
+                    }()
+                    Task { @MainActor in
+                        delegate.processPendingWidgetCommand(fallbackAction: fallback)
+                    }
+                },
+                name as CFString,
+                nil,
+                .deliverImmediately
+            )
+        }
+
         let toggleObs = DistributedNotificationCenter.default().addObserver(
             forName: WidgetBridge.toggleNotification,
             object: nil,
             queue: .main
-        ) { _ in
+        ) { [weak self] _ in
             Task { @MainActor in
-                AudioPlayerService.shared.togglePlayPause()
+                self?.processPendingWidgetCommand(fallbackAction: "toggle")
             }
         }
         notificationObservers.append(toggleObs)
@@ -27,9 +82,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             forName: WidgetBridge.nextNotification,
             object: nil,
             queue: .main
-        ) { _ in
+        ) { [weak self] _ in
             Task { @MainActor in
-                AudioPlayerService.shared.next()
+                self?.processPendingWidgetCommand(fallbackAction: "next")
             }
         }
         notificationObservers.append(nextObs)
@@ -38,18 +93,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             forName: WidgetBridge.previousNotification,
             object: nil,
             queue: .main
-        ) { _ in
+        ) { [weak self] _ in
             Task { @MainActor in
-                AudioPlayerService.shared.previous()
+                self?.processPendingWidgetCommand(fallbackAction: "previous")
             }
         }
         notificationObservers.append(prevObs)
+
+        // Fallback poll for sandboxed widget IPC if notifications are dropped.
+        Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                self?.processPendingWidgetCommand()
+            }
+        }
 
         if let icon = Bundle.main.image(forResource: "AppIcon") ?? NSImage(contentsOfFile: Bundle.main.bundlePath + "/Contents/Resources/AppIcon.icns") {
             NSApplication.shared.applicationIconImage = icon
         }
 
         configureAllWindows()
+    }
+
+    func application(_ application: NSApplication, open urls: [URL]) {
+        for url in urls {
+            Self.handleWidgetURL(url)
+        }
+    }
+
+    static func handleWidgetURL(_ url: URL) {
+        guard url.scheme == "music-widget" else { return }
+        let host = url.host ?? ""
+        let path = url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let action = !host.isEmpty ? host : path
+        Task { @MainActor in
+            executeWidgetAction(action)
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -172,6 +250,9 @@ struct MusicApp: App {
         WindowGroup("Music") {
             MainView()
                 .frame(minWidth: 800, idealWidth: 1200, maxWidth: .infinity, minHeight: 580, idealHeight: 800, maxHeight: .infinity)
+                .onOpenURL { url in
+                    AppDelegate.handleWidgetURL(url)
+                }
         }
         .windowStyle(.hiddenTitleBar)
         .commands {
@@ -230,6 +311,13 @@ struct MusicApp: App {
                     AppSettings.shared.theme = (AppSettings.shared.theme == .dark) ? .light : .dark
                 }
                 .keyboardShortcut("d", modifiers: [.command, .shift])
+
+                Divider()
+
+                Button("Vinyl Paper Widget") {
+                    VinylWidgetWindowController.shared.toggle()
+                }
+                .keyboardShortcut("v", modifiers: [.command, .shift])
             }
         }
     }

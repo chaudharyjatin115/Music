@@ -4,9 +4,15 @@
 <dict>
     <key>com.apple.security.app-sandbox</key>
     <true/>
-    <key>com.apple.security.temporary-exception.files.home-relative-path.read-only</key>
+    <key>com.apple.security.temporary-exception.files.home-relative-path.read-write</key>
     <array>
         <string>/Library/Application Support/MusicWidget/</string>
+    </array>
+    <key>com.apple.security.temporary-exception.mach-lookup.global-name</key>
+    <array>
+        <string>com.apple.system.notification_center</string>
+        <string>com.apple.distributed_notifications@1v6</string>
+        <string>com.apple.distributed_notifications@Uv3</string>
     </array>
 </dict>
 </plist>

@@ -59,9 +59,20 @@ cat << 'EOF' > "$CONTENTS/Info.plist"
     <true/>
     <key>NSAppTransportSecurity</key>
     <dict>
-        <key>NSAllowsArbitraryLoads</key>
+        <key>NSAllowsLocalNetworking</key>
         <true/>
     </dict>
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLName</key>
+            <string>com.music.app</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>music-widget</string>
+            </array>
+        </dict>
+    </array>
 </dict>
 </plist>
 EOF
@@ -130,6 +141,170 @@ cat << 'EOF' > "$WIDGET_CONTENTS/Info.plist"
 </plist>
 EOF
 
+# Generate AppIntents Metadata so interactive WidgetKit Button(intent:) works without Xcode
+APPINTENTS_DIR="$WIDGET_RESOURCES/Metadata.appintents"
+mkdir -p "$APPINTENTS_DIR"
+
+cat << 'EOF' > "$APPINTENTS_DIR/version.json"
+{
+  "toolsVersion" : "16E6052g",
+  "version" : "3.0"
+}
+EOF
+
+cat << 'EOF' > "$APPINTENTS_DIR/extract.actionsdata"
+{
+  "actions": {
+    "WidgetTogglePlayPauseIntent": {
+      "assistantDefinedSchemaTraits": [],
+      "assistantDefinedSchemas": [],
+      "authenticationPolicy": 0,
+      "availabilityAnnotations": {
+        "LNPlatformNameWildcard": {
+          "introducedVersion": "*"
+        }
+      },
+      "descriptionMetadata": {
+        "descriptionText": {
+          "alternatives": [],
+          "key": "Toggles music playback"
+        },
+        "searchKeywords": []
+      },
+      "effectiveBundleIdentifiers": [],
+      "fullyQualifiedTypeName": "MusicWidget.WidgetTogglePlayPauseIntent",
+      "identifier": "WidgetTogglePlayPauseIntent",
+      "isAuthPolExplicit": false,
+      "isDiscoverable": false,
+      "mangledTypeName": "11MusicWidget0B21TogglePlayPauseIntentV",
+      "mangledTypeNameByBundleIdentifier": {},
+      "mangledTypeNameByBundleIdentifierV2": {},
+      "mangledTypeNameV2": "11MusicWidget0B21TogglePlayPauseIntentV",
+      "openAppWhenRun": false,
+      "outputFlags": 0,
+      "parameters": [],
+      "presentationStyle": 0,
+      "requiredCapabilities": [],
+      "supportedModes": 1,
+      "systemProtocolMetadata": [],
+      "systemProtocolMetadataV2": [],
+      "systemProtocols": [],
+      "title": {
+        "alternatives": [],
+        "key": "Play/Pause"
+      },
+      "typeSpecificMetadata": [],
+      "visibilityMetadata": {
+        "assistantOnly": false,
+        "isDiscoverable": false
+      }
+    },
+    "WidgetNextTrackIntent": {
+      "assistantDefinedSchemaTraits": [],
+      "assistantDefinedSchemas": [],
+      "authenticationPolicy": 0,
+      "availabilityAnnotations": {
+        "LNPlatformNameWildcard": {
+          "introducedVersion": "*"
+        }
+      },
+      "descriptionMetadata": {
+        "descriptionText": {
+          "alternatives": [],
+          "key": "Skips to the next track"
+        },
+        "searchKeywords": []
+      },
+      "effectiveBundleIdentifiers": [],
+      "fullyQualifiedTypeName": "MusicWidget.WidgetNextTrackIntent",
+      "identifier": "WidgetNextTrackIntent",
+      "isAuthPolExplicit": false,
+      "isDiscoverable": false,
+      "mangledTypeName": "11MusicWidget0B15NextTrackIntentV",
+      "mangledTypeNameByBundleIdentifier": {},
+      "mangledTypeNameByBundleIdentifierV2": {},
+      "mangledTypeNameV2": "11MusicWidget0B15NextTrackIntentV",
+      "openAppWhenRun": false,
+      "outputFlags": 0,
+      "parameters": [],
+      "presentationStyle": 0,
+      "requiredCapabilities": [],
+      "supportedModes": 1,
+      "systemProtocolMetadata": [],
+      "systemProtocolMetadataV2": [],
+      "systemProtocols": [],
+      "title": {
+        "alternatives": [],
+        "key": "Next Track"
+      },
+      "typeSpecificMetadata": [],
+      "visibilityMetadata": {
+        "assistantOnly": false,
+        "isDiscoverable": false
+      }
+    },
+    "WidgetPreviousTrackIntent": {
+      "assistantDefinedSchemaTraits": [],
+      "assistantDefinedSchemas": [],
+      "authenticationPolicy": 0,
+      "availabilityAnnotations": {
+        "LNPlatformNameWildcard": {
+          "introducedVersion": "*"
+        }
+      },
+      "descriptionMetadata": {
+        "descriptionText": {
+          "alternatives": [],
+          "key": "Plays previous track or seeks to start"
+        },
+        "searchKeywords": []
+      },
+      "effectiveBundleIdentifiers": [],
+      "fullyQualifiedTypeName": "MusicWidget.WidgetPreviousTrackIntent",
+      "identifier": "WidgetPreviousTrackIntent",
+      "isAuthPolExplicit": false,
+      "isDiscoverable": false,
+      "mangledTypeName": "11MusicWidget0B19PreviousTrackIntentV",
+      "mangledTypeNameByBundleIdentifier": {},
+      "mangledTypeNameByBundleIdentifierV2": {},
+      "mangledTypeNameV2": "11MusicWidget0B19PreviousTrackIntentV",
+      "openAppWhenRun": false,
+      "outputFlags": 0,
+      "parameters": [],
+      "presentationStyle": 0,
+      "requiredCapabilities": [],
+      "supportedModes": 1,
+      "systemProtocolMetadata": [],
+      "systemProtocolMetadataV2": [],
+      "systemProtocols": [],
+      "title": {
+        "alternatives": [],
+        "key": "Previous Track"
+      },
+      "typeSpecificMetadata": [],
+      "visibilityMetadata": {
+        "assistantOnly": false,
+        "isDiscoverable": false
+      }
+    }
+  },
+  "assistantEntities": [],
+  "assistantIntentNegativePhrases": [],
+  "assistantIntents": [],
+  "autoShortcuts": [],
+  "entities": {},
+  "enums": [],
+  "generator": {
+    "name": "xcode-tools",
+    "version": "16E6052g"
+  },
+  "negativePhrases": [],
+  "queries": {},
+  "shortcutTileColor": 14,
+  "version": 1
+}
+EOF
+
 WIDGET_ENTITLEMENTS="Resources/MusicWidget.entitlements"
 
 # Detect code signing identity
@@ -169,5 +344,6 @@ if [ "$2" == "--install" ] || [ "$CONFIG" == "release" ]; then
     /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f /Applications/Music.app 2>/dev/null || true
     launchctl kickstart -kp gui/$(id -u)/com.apple.chronod 2>/dev/null || true
     killall -9 pkd 2>/dev/null || true
+    killall NotificationCenter 2>/dev/null || true
     echo "Successfully installed to /Applications/Music.app"
 fi

@@ -25,6 +25,7 @@ struct NowPlayingMetadata: Sendable, Equatable {
 @MainActor
 protocol AudioOutput: AnyObject {
     var isPlaying: Bool { get }
+    var hasActiveItem: Bool { get }
     /// Audio is genuinely flowing (not paused, not buffering).
     var isActuallyPlaying: Bool { get }
     var isBuffering: Bool { get }
