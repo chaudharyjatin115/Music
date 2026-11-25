@@ -1,5 +1,6 @@
 import Foundation
 import CryptoKit
+import WebKit
 
 @MainActor
 public final class AuthManager: ObservableObject {
@@ -73,12 +74,13 @@ public final class AuthManager: ObservableObject {
     }
 
     public func saveCookies(_ newCookies: [String: String]) {
-        self.cookies = newCookies
+        let sanitized = Credentials.sanitizeCookies(newCookies)
+        self.cookies = sanitized
         UserDefaults.standard.removeObject(forKey: cookiesKey)
-        self.isLoggedIn = newCookies["SAPISID"] != nil || newCookies["__Secure-3PAPISID"] != nil || newCookies["SID"] != nil
+        self.isLoggedIn = sanitized["SAPISID"] != nil || sanitized["__Secure-3PAPISID"] != nil || sanitized["SID"] != nil
 
         Task {
-            let creds = Credentials(cookies: newCookies)
+            let creds = Credentials(cookies: sanitized)
             await CredentialStore.shared.update(creds)
             await fetchUserProfile()
         }
@@ -108,6 +110,10 @@ public final class AuthManager: ObservableObject {
 
         Task {
             await CredentialStore.shared.clear()
+            let store = WKWebsiteDataStore.default()
+            let types = WKWebsiteDataStore.allWebsiteDataTypes()
+            let records = await store.dataRecords(ofTypes: types)
+            await store.removeData(ofTypes: types, for: records)
         }
     }
 
@@ -154,7 +160,7 @@ public final class AuthManager: ObservableObject {
         req.httpBody = httpBody
 
         do {
-            let (data, _) = try await URLSession.shared.data(for: req)
+            let (data, _) = try await NetworkSession.shared.data(for: req)
             if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                let actions = json["actions"] as? [[String: Any]] {
                 for act in actions {

@@ -112,6 +112,10 @@ public struct SettingsView: View {
             lastfmSecretInput = lastfm.apiSecret
             proxyInput = settings.proxyURL
         }
+        .onDisappear {
+            tokenInput = ""
+            lastfmSecretInput = ""
+        }
     }
 
     private var sidebarView: some View {
@@ -512,8 +516,13 @@ public struct SettingsView: View {
                         HStack(spacing: 8) {
                             TextField("http://host:port", text: $proxyInput).textFieldStyle(.roundedBorder)
                             Button("Save") {
-                                settings.proxyURL = proxyInput
-                                proxySavedMessage = "Proxy saved."
+                                let trimmed = proxyInput.trimmingCharacters(in: .whitespacesAndNewlines)
+                                if trimmed.isEmpty || NetworkProxy(string: trimmed) != nil {
+                                    settings.proxyURL = trimmed
+                                    proxySavedMessage = trimmed.isEmpty ? "Proxy cleared." : "Proxy saved."
+                                } else {
+                                    proxySavedMessage = "Invalid proxy URL (expected http:// or https:// with valid port)."
+                                }
                             }
                             .buttonStyle(.bordered)
                         }

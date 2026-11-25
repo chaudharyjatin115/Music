@@ -32,12 +32,22 @@ public final class DownloadManager: ObservableObject {
               let list = try? JSONDecoder().decode([Song].self, from: data) else {
             return
         }
-        self.downloadedSongs = list
+        self.downloadedSongs = list.filter { song in
+            guard let path = song.localFilePath else { return false }
+            return isInsideDownloadsDirectory(path)
+        }
     }
 
     private func saveIndex() {
         guard let data = try? JSONEncoder().encode(downloadedSongs) else { return }
-        try? data.write(to: indexFileUrl)
+        try? data.write(to: indexFileUrl, options: .atomic)
+    }
+
+    public func isInsideDownloadsDirectory(_ path: String) -> Bool {
+        let base = downloadsDirectory.resolvingSymlinksInPath().standardizedFileURL.path
+        let target = URL(fileURLWithPath: path).resolvingSymlinksInPath().standardizedFileURL.path
+        let prefix = base.hasSuffix("/") ? base : base + "/"
+        return target.hasPrefix(prefix)
     }
 
     public func isDownloaded(songId: String) -> Bool {
@@ -65,12 +75,19 @@ public final class DownloadManager: ObservableObject {
         Task {
             do {
                 let streamUrlString = try await InnerTubeService.shared.resolveAudioStreamUrl(videoId: song.id, song: song)
-                guard let streamUrl = URL(string: streamUrlString) else {
+                guard let streamUrl = URL(string: streamUrlString),
+                      let scheme = streamUrl.scheme?.lowercased(),
+                      scheme == "https" || scheme == "http" else {
                     self.activeDownloads.remove(song.id)
                     return
                 }
 
-                let (tempUrl, _) = try await session.download(from: streamUrl)
+                let (tempUrl, response) = try await session.download(from: streamUrl)
+                if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+                    try? FileManager.default.removeItem(at: tempUrl)
+                    self.activeDownloads.remove(song.id)
+                    return
+                }
 
                 let safeTitle = Self.sanitizeFilenameComponent(song.title)
                 let safeArtist = Self.sanitizeFilenameComponent(song.artist)
@@ -103,7 +120,7 @@ public final class DownloadManager: ObservableObject {
     public func deleteDownload(songId: String) {
         guard let index = downloadedSongs.firstIndex(where: { $0.id == songId }) else { return }
         let song = downloadedSongs[index]
-        if let path = song.localFilePath {
+        if let path = song.localFilePath, isInsideDownloadsDirectory(path) {
             try? FileManager.default.removeItem(atPath: path)
         }
         downloadedSongs.remove(at: index)
@@ -114,7 +131,8 @@ public final class DownloadManager: ObservableObject {
         var totalBytes: Int64 = 0
         let fm = FileManager.default
         for song in downloadedSongs {
-            if let path = song.localFilePath, let attrs = try? fm.attributesOfItem(atPath: path), let size = attrs[.size] as? Int64 {
+            if let path = song.localFilePath, isInsideDownloadsDirectory(path),
+               let attrs = try? fm.attributesOfItem(atPath: path), let size = attrs[.size] as? Int64 {
                 totalBytes += size
             }
         }
@@ -126,7 +144,7 @@ public final class DownloadManager: ObservableObject {
 
     public func deleteAllDownloads() {
         for song in downloadedSongs {
-            if let path = song.localFilePath {
+            if let path = song.localFilePath, isInsideDownloadsDirectory(path) {
                 try? FileManager.default.removeItem(atPath: path)
             }
         }

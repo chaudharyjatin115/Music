@@ -13,9 +13,11 @@ nonisolated struct NetworkProxy: Sendable, Equatable {
               ["http", "https"].contains(scheme),
               let host = components.host,
               !host.isEmpty else { return nil }
+        let port = components.port ?? (scheme == "https" ? 443 : 80)
+        guard (1...65535).contains(port) else { return nil }
         self.scheme = scheme
         self.host = host
-        self.port = components.port ?? (scheme == "https" ? 443 : 80)
+        self.port = port
     }
 
     var connectionProxyDictionary: [AnyHashable: Any] {

@@ -177,11 +177,13 @@ final class AppSettings {
     var needsRelaunchForLanguage: Bool { language != launchLanguage }
 
     func relaunch() {
-        let relauncher = Process()
-        relauncher.executableURL = URL(fileURLWithPath: "/bin/sh")
-        relauncher.arguments = ["-c", "sleep 0.5; /usr/bin/open -n \"$0\"", Bundle.main.bundlePath]
-        try? relauncher.run()
-        NSApp.terminate(nil)
+        let config = NSWorkspace.OpenConfiguration()
+        config.createsNewApplicationInstance = true
+        NSWorkspace.shared.openApplication(at: Bundle.main.bundleURL, configuration: config) { _, _ in
+            Task { @MainActor in
+                NSApp.terminate(nil)
+            }
+        }
     }
 
     var playOnSingleClick: Bool {

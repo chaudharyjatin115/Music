@@ -12,7 +12,7 @@ nonisolated struct Credentials: Codable, Sendable, Equatable {
     var cookies: [String: String]
 
     init(cookies: [String: String]) {
-        self.cookies = cookies
+        self.cookies = Self.sanitizeCookies(cookies)
     }
 
     init(httpCookies: [HTTPCookie]) {
@@ -20,12 +20,28 @@ nonisolated struct Credentials: Codable, Sendable, Equatable {
         for cookie in httpCookies where Credentials.isRelevant(cookie) {
             jar[cookie.name] = cookie.value
         }
-        self.cookies = jar
+        self.cookies = Self.sanitizeCookies(jar)
+    }
+
+    static func sanitizeCookies(_ cookies: [String: String]) -> [String: String] {
+        var clean: [String: String] = [:]
+        for (rawKey, rawValue) in cookies {
+            let key = rawKey.trimmingCharacters(in: .whitespacesAndNewlines)
+            let value = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !key.isEmpty,
+                  !key.contains(where: { $0 == "\r" || $0 == "\n" || $0 == "\0" || $0 == ";" || $0 == "=" }),
+                  !value.contains(where: { $0 == "\r" || $0 == "\n" || $0 == "\0" }) else {
+                continue
+            }
+            clean[key] = value
+        }
+        return clean
     }
 
     private static func isRelevant(_ cookie: HTTPCookie) -> Bool {
-        let domain = cookie.domain.lowercased()
-        return domain.contains("google.com") || domain.contains("youtube.com")
+        let domain = cookie.domain.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "."))
+        return domain == "google.com" || domain.hasSuffix(".google.com")
+            || domain == "youtube.com" || domain.hasSuffix(".youtube.com")
     }
 
     var sapisid: String? {

@@ -237,8 +237,12 @@ public actor AppleMusicMetadataService {
                 matchedArtistLink = firstLink
             }
 
-            guard let linkString = matchedArtistLink, let pageUrl = URL(string: linkString) else {
-                negativeArtistCache.insert(cacheKey)
+            guard let linkString = matchedArtistLink,
+                  let pageUrl = URL(string: linkString),
+                  pageUrl.scheme?.lowercased() == "https",
+                  let pageHost = pageUrl.host?.lowercased(),
+                  pageHost == "music.apple.com" || pageHost.hasSuffix(".music.apple.com") || pageHost == "itunes.apple.com" else {
+                negativeArtistCache.insertBounded(cacheKey)
                 return nil
             }
 
@@ -249,7 +253,7 @@ public actor AppleMusicMetadataService {
             let (htmlData, pageResp) = try await NetworkSession.shared.data(for: pageReq)
             guard let pageHttp = pageResp as? HTTPURLResponse, pageHttp.statusCode == 200,
                   let html = String(data: htmlData, encoding: .utf8) else {
-                negativeArtistCache.insert(cacheKey)
+                negativeArtistCache.insertBounded(cacheKey)
                 return nil
             }
 
@@ -258,7 +262,10 @@ public actor AppleMusicMetadataService {
                let match = regex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
                let range = Range(match.range(at: 1), in: html) {
                 var imgUrl = String(html[range])
-                if imgUrl.contains("mzstatic.com") {
+                if let parsedImg = URL(string: imgUrl),
+                   parsedImg.scheme?.lowercased() == "https",
+                   let imgHost = parsedImg.host?.lowercased(),
+                   imgHost == "mzstatic.com" || imgHost.hasSuffix(".mzstatic.com") {
                     imgUrl = imgUrl.replacingOccurrences(of: "cw.png", with: "cc.png")
                                    .replacingOccurrences(of: "cw.jpg", with: "cc.jpg")
                     artistPictureCache.setBounded(imgUrl, for: cacheKey)

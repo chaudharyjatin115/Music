@@ -124,7 +124,13 @@ final class DiscordRPC: @unchecked Sendable {
     }
 
     private func openSocket() {
+        let uid = getuid()
         for path in candidatePaths() {
+            var st = stat()
+            guard lstat(path, &st) == 0,
+                  (st.st_mode & S_IFMT) == S_IFSOCK,
+                  st.st_uid == uid else { continue }
+
             let s = socket(AF_UNIX, SOCK_STREAM, 0)
             guard s >= 0 else { continue }
             // A write after Discord closes the socket must fail with EPIPE, not kill the app.

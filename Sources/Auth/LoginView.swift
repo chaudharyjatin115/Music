@@ -91,7 +91,8 @@ private struct LoginWebView: NSViewRepresentable {
     final class Coordinator: NSObject, WKNavigationDelegate {
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             guard let authWebView = webView as? AuthWebView else { return }
-            if webView.url?.host?.contains("music.youtube.com") == true {
+            if webView.url?.scheme?.lowercased() == "https",
+               webView.url?.host?.lowercased() == "music.youtube.com" {
                 authWebView.captureCookies()
             }
         }

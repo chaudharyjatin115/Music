@@ -397,15 +397,18 @@ nonisolated final class InnerTubeClient: Sendable, WatchHistoryReporting {
         start.setValue("start", forHTTPHeaderField: "X-Goog-Upload-Command")
         start.setValue(String(size), forHTTPHeaderField: "X-Goog-Upload-Header-Content-Length")
         start.setValue("resumable", forHTTPHeaderField: "X-Goog-Upload-Protocol")
-        start.httpBody = Data("filename=\(fileURL.lastPathComponent)".utf8)
+        let encodedName = fileURL.lastPathComponent
+            .addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "upload"
+        start.httpBody = Data("filename=\(encodedName)".utf8)
 
         let (_, startResponse) = try await session.data(for: start)
         guard let startHTTP = startResponse as? HTTPURLResponse else { throw InnerTubeError.emptyResponse }
         Self.log.note("upload: start → HTTP \(startHTTP.statusCode) for \(fileURL.lastPathComponent) (\(size) bytes)")
         guard (200..<300).contains(startHTTP.statusCode) else { throw UploadError.failed(startHTTP.statusCode) }
         guard let uploadURLString = startHTTP.value(forHTTPHeaderField: "X-Goog-Upload-URL"),
-              let uploadURL = URL(string: uploadURLString) else {
-            Self.log.problem("upload: no X-Goog-Upload-URL header in start response")
+              let uploadURL = URL(string: uploadURLString),
+              Self.isTrustedGoogleUploadURL(uploadURL) else {
+            Self.log.problem("upload: missing or untrusted X-Goog-Upload-URL header in start response")
             throw UploadError.uploadURLMissing
         }
 
@@ -428,6 +431,15 @@ nonisolated final class InnerTubeClient: Sendable, WatchHistoryReporting {
     }
 
     static let uploadableExtensions: Set<String> = ["mp3", "m4a", "aac", "flac", "ogg", "wma"]
+
+    private static func isTrustedGoogleUploadURL(_ url: URL) -> Bool {
+        guard url.scheme?.lowercased() == "https",
+              let host = url.host?.lowercased() else { return false }
+        let trustedRoots = ["youtube.com", "googleapis.com", "googleusercontent.com", "google.com"]
+        return trustedRoots.contains { root in
+            host == root || host.hasSuffix("." + root)
+        }
+    }
 
     /// Requires auth; anonymous requests return no history.
     func history() async throws -> [HistorySection] {

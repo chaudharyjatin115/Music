@@ -11,23 +11,32 @@ enum MusicLinks {
     private static let base = "https://music.youtube.com"
 
     static func url(videoId: String?, playlistId: String?, browseId: String?) -> URL? {
+        var components = URLComponents(string: base)
         if let videoId {
-            var string = "\(base)/watch?v=\(videoId)"
-            if let playlistId { string += "&list=\(playlistId)" }
-            return URL(string: string)
+            components?.path = "/watch"
+            var items = [URLQueryItem(name: "v", value: videoId)]
+            if let playlistId { items.append(URLQueryItem(name: "list", value: playlistId)) }
+            components?.queryItems = items
+            return components?.url
         }
         if let playlistId {
-            return URL(string: "\(base)/playlist?list=\(playlistId)")
+            components?.path = "/playlist"
+            components?.queryItems = [URLQueryItem(name: "list", value: playlistId)]
+            return components?.url
         }
         if let browseId {
             // Playlist browse ids are "VL<playlistId>"; map them to a playlist link.
             if browseId.hasPrefix("VL") {
-                return URL(string: "\(base)/playlist?list=\(browseId.dropFirst(2))")
+                components?.path = "/playlist"
+                components?.queryItems = [URLQueryItem(name: "list", value: String(browseId.dropFirst(2)))]
+                return components?.url
             }
             if browseId.hasPrefix("UC") {
-                return URL(string: "\(base)/channel/\(browseId)")
+                components?.path = "/channel/\(browseId)"
+                return components?.url
             }
-            return URL(string: "\(base)/browse/\(browseId)")
+            components?.path = "/browse/\(browseId)"
+            return components?.url
         }
         return nil
     }

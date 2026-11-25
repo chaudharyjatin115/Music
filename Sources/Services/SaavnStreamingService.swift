@@ -197,8 +197,11 @@ public actor SaavnStreamingService {
     }
 
     private func resolveStreamFromCandidate(_ candidate: SaavnCandidate) async -> SaavnStream? {
-        guard let decryptedUrlString = decryptDES(base64: candidate.encryptedMediaUrl, key: desKey) else {
+        guard var decryptedUrlString = decryptDES(base64: candidate.encryptedMediaUrl, key: desKey) else {
             return nil
+        }
+        if decryptedUrlString.hasPrefix("http://") {
+            decryptedUrlString = "https://" + decryptedUrlString.dropFirst("http://".count)
         }
 
         // Saavn typically serves 96kbps, 160kbps, and 320kbps MP4/AAC streams
@@ -232,12 +235,17 @@ public actor SaavnStreamingService {
             }
         }
 
-        guard let finalURL = URL(string: chosenUrlString) else { return nil }
+        guard let finalURL = URL(string: chosenUrlString),
+              finalURL.scheme?.lowercased() == "https",
+              let host = finalURL.host, !host.isEmpty else { return nil }
 
-        // Upgrade image URL to high quality 500x500
-        let artUrl = candidate.image?
+        // Upgrade image URL to high quality 500x500 over HTTPS
+        var artUrl = candidate.image?
             .replacingOccurrences(of: "150x150.jpg", with: "500x500.jpg")
             .replacingOccurrences(of: "50x50.jpg", with: "500x500.jpg")
+        if let rawArt = artUrl, rawArt.hasPrefix("http://") {
+            artUrl = "https://" + rawArt.dropFirst("http://".count)
+        }
 
         return SaavnStream(
             url: finalURL,

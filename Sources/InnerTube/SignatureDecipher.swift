@@ -61,15 +61,25 @@ actor SignatureDecipher {
 
         if let cipher = format.cipherString {
             Self.log.note("format has signatureCipher - deciphering")
-            return try decipheredURL(cipher: cipher, solver: solver)
+            let url = try decipheredURL(cipher: cipher, solver: solver)
+            guard Self.isAllowedStreamURL(url) else { throw DecipherError.malformedStreamURL }
+            return url
         }
         if let urlString = format.url, var components = URLComponents(string: urlString) {
             Self.log.note("format has a direct url - applying n transform only")
             applyNTransform(to: &components, solver: solver)
-            guard let url = components.url else { throw DecipherError.malformedStreamURL }
+            guard let url = components.url, Self.isAllowedStreamURL(url) else { throw DecipherError.malformedStreamURL }
             return url
         }
         throw DecipherError.malformedStreamURL
+    }
+
+    private nonisolated static func isAllowedStreamURL(_ url: URL) -> Bool {
+        guard let scheme = url.scheme?.lowercased(),
+              scheme == "https" || scheme == "http",
+              let host = url.host?.lowercased() else { return false }
+        return host == "googlevideo.com" || host.hasSuffix(".googlevideo.com")
+            || host == "youtube.com" || host.hasSuffix(".youtube.com")
     }
 
     // MARK: - Solver setup

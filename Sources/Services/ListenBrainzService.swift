@@ -6,6 +6,15 @@ public final class ListenBrainzService: ObservableObject {
 
     @Published public var apiToken: String = "" {
         didSet {
+            let cleaned = apiToken.trimmingCharacters(in: .whitespacesAndNewlines)
+            if cleaned.contains(where: { $0 == "\r" || $0 == "\n" || $0 == "\0" }) {
+                apiToken = ""
+                return
+            }
+            if cleaned != apiToken {
+                apiToken = cleaned
+                return
+            }
             if apiToken.isEmpty {
                 Keychain.delete(service: keychainService, account: keychainAccount)
             } else {
@@ -29,7 +38,7 @@ public final class ListenBrainzService: ObservableObject {
     private let keychainAccount = "listenbrainz_token"
     private let tokenKey = "com.music.app.listenbrainz_token"
     private let baseUrl = "https://api.listenbrainz.org/1"
-    private let session = URLSession(configuration: .default)
+    private let session = NetworkSession.shared
 
     private var currentPlayingSongId: String?
     private var hasSubmittedSingleListen: Bool = false

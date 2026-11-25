@@ -58,32 +58,66 @@ public final class EclipseAddonService: ObservableObject {
         }
     }
 
-    /// Connect and install an Eclipse addon from its base HTTP URL
+    private static func isLocalHost(_ host: String) -> Bool {
+        let lower = host.lowercased()
+        return lower == "localhost"
+            || lower == "127.0.0.1"
+            || lower == "::1"
+            || lower == "[::1]"
+            || lower.hasSuffix(".local")
+            || lower.hasPrefix("192.168.")
+            || lower.hasPrefix("10.")
+    }
+
+    private static func isAllowedAddonURL(_ url: URL, allowHTTPForLocalOnly: Bool = true) -> Bool {
+        guard let scheme = url.scheme?.lowercased(),
+              let host = url.host, !host.isEmpty else { return false }
+        if scheme == "https" { return true }
+        if scheme == "http" {
+            return !allowHTTPForLocalOnly || isLocalHost(host)
+        }
+        return false
+    }
+
+    private static func sanitizeIdentifier(_ raw: String) -> String {
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_"))
+        let cleaned = raw.unicodeScalars.filter { allowed.contains($0) }
+        return String(String.UnicodeScalarView(cleaned))
+    }
+
+    /// Connect and install an Eclipse addon from its base URL (HTTPS required for non-local hosts)
     public func addAddon(urlString: String) async throws -> EclipseAddon {
         var cleanUrl = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
-        if cleanUrl.hasSuffix("/") {
+        while cleanUrl.hasSuffix("/") {
             cleanUrl = String(cleanUrl.dropLast())
         }
-        if !cleanUrl.starts(with: "http://") && !cleanUrl.starts(with: "https://") {
-            cleanUrl = "http://" + cleanUrl
+        if !cleanUrl.contains("://") {
+            let hostCandidate = cleanUrl.split(separator: "/").first?.split(separator: ":").first.map(String.init) ?? ""
+            cleanUrl = (Self.isLocalHost(hostCandidate) ? "http://" : "https://") + cleanUrl
         }
 
-        guard let manifestUrl = URL(string: "\(cleanUrl)/manifest.json") else {
+        guard let baseURL = URL(string: cleanUrl),
+              Self.isAllowedAddonURL(baseURL),
+              let manifestUrl = URL(string: "\(cleanUrl)/manifest.json") else {
             throw URLError(.badURL)
         }
 
         var request = URLRequest(url: manifestUrl)
         request.timeoutInterval = 8
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await NetworkSession.shared.data(for: request)
 
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
             throw URLError(.badServerResponse)
         }
 
         let manifest = try JSONDecoder().decode(EclipseAddonManifest.self, from: data)
+        let safeId = Self.sanitizeIdentifier(manifest.id)
+        guard !safeId.isEmpty else {
+            throw URLError(.badServerResponse)
+        }
 
         let addon = EclipseAddon(
-            id: manifest.id,
+            id: safeId,
             name: manifest.name,
             version: manifest.version,
             description: manifest.description ?? "Self-hosted music source",
@@ -116,14 +150,16 @@ public final class EclipseAddonService: ObservableObject {
         guard !enabled.isEmpty else { return [] }
 
         var results: [Song] = []
-        let encodedQuery = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
 
         for addon in enabled {
-            guard let searchUrl = URL(string: "\(addon.baseUrl)/search?q=\(encodedQuery)") else { continue }
+            guard var components = URLComponents(string: addon.baseUrl) else { continue }
+            components.path = (components.path.hasSuffix("/") ? String(components.path.dropLast()) : components.path) + "/search"
+            components.queryItems = [URLQueryItem(name: "q", value: query)]
+            guard let searchUrl = components.url, Self.isAllowedAddonURL(searchUrl) else { continue }
             var req = URLRequest(url: searchUrl)
             req.timeoutInterval = 6
 
-            guard let (data, resp) = try? await URLSession.shared.data(for: req),
+            guard let (data, resp) = try? await NetworkSession.shared.data(for: req),
                   let http = resp as? HTTPURLResponse, http.statusCode == 200,
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
                 continue
@@ -131,12 +167,19 @@ public final class EclipseAddonService: ObservableObject {
 
             let items = (json["results"] as? [[String: Any]]) ?? (json["tracks"] as? [[String: Any]]) ?? []
             for item in items {
-                let trackId = (item["id"] as? String) ?? (item["trackId"] as? String) ?? UUID().uuidString
+                let rawTrackId = (item["id"] as? String) ?? (item["trackId"] as? String) ?? UUID().uuidString
+                let trackId = rawTrackId.replacingOccurrences(of: "/", with: "_")
+                    .replacingOccurrences(of: "..", with: "_")
                 let title = (item["title"] as? String) ?? "Untitled Track"
                 let artist = (item["artist"] as? String) ?? addon.name
                 let album = item["album"] as? String
                 let duration = (item["duration"] as? Double) ?? 180.0
-                let thumb = (item["thumbnail"] as? String) ?? (item["cover"] as? String) ?? ""
+                let rawThumb = (item["thumbnail"] as? String) ?? (item["cover"] as? String) ?? ""
+                let thumb: String = {
+                    guard let thumbURL = URL(string: rawThumb),
+                          Self.isAllowedAddonURL(thumbURL, allowHTTPForLocalOnly: true) else { return "" }
+                    return thumbURL.absoluteString
+                }()
 
                 let song = Song(
                     id: "eclipse:\(addon.id):\(trackId)",
@@ -160,24 +203,27 @@ public final class EclipseAddonService: ObservableObject {
 
         let addonId = components[1]
         let trackId = components.dropFirst(2).joined(separator: ":")
+        guard !trackId.isEmpty, !trackId.contains(".."), !trackId.contains("/") else { return nil }
 
         guard let addon = addons.first(where: { $0.id == addonId }), addon.isEnabled else { return nil }
-
-        // Try /stream/{trackId}
-        guard let streamEndpoint = URL(string: "\(addon.baseUrl)/stream/\(trackId)") else { return nil }
+        guard let encodedTrackId = trackId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
+              let streamEndpoint = URL(string: "\(addon.baseUrl)/stream/\(encodedTrackId)"),
+              Self.isAllowedAddonURL(streamEndpoint) else { return nil }
         var req = URLRequest(url: streamEndpoint)
         req.timeoutInterval = 6
 
         // If the endpoint directly streams audio (HTTP 200 or 302 redirect), return the URL directly
-        if let (data, resp) = try? await URLSession.shared.data(for: req),
+        if let (data, resp) = try? await NetworkSession.shared.data(for: req),
            let http = resp as? HTTPURLResponse {
             if let mime = http.mimeType, mime.starts(with: "audio/") || mime.contains("octet-stream") {
                 return streamEndpoint.absoluteString
             }
             // Or if JSON is returned: { "url": "https://..." }
             if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-               let streamUrl = json["url"] as? String, !streamUrl.isEmpty {
-                return streamUrl
+               let streamUrl = json["url"] as? String,
+               let parsed = URL(string: streamUrl),
+               Self.isAllowedAddonURL(parsed) {
+                return parsed.absoluteString
             }
         }
 

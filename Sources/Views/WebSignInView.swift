@@ -149,8 +149,9 @@ public struct WebSignInView: View {
             dict["__Secure-3PAPISID"] = text
         }
 
-        if dict["SAPISID"] != nil || dict["__Secure-3PAPISID"] != nil || dict["SID"] != nil {
-            authManager.saveCookies(dict)
+        let sanitized = Credentials.sanitizeCookies(dict)
+        if sanitized["SAPISID"] != nil || sanitized["__Secure-3PAPISID"] != nil || sanitized["SID"] != nil {
+            authManager.saveCookies(sanitized)
             let name = manualNameInput.isEmpty ? "Google Account" : manualNameInput
             authManager.updateUserInfo(name: name, avatarUrl: "")
             manualCookiesInput = ""
@@ -214,20 +215,18 @@ struct WKWebViewContainer: NSViewRepresentable {
                 self.parent.isLoading = false
             }
 
-            guard let url = webView.url else { return }
+            guard let url = webView.url,
+                  url.scheme?.lowercased() == "https",
+                  url.host?.lowercased() == "music.youtube.com" else { return }
 
-            if url.host?.contains("music.youtube.com") == true {
-                // Read cookies from store
-                webView.configuration.websiteDataStore.httpCookieStore.getAllCookies { [weak self] cookies in
-                    guard let self = self else { return }
+            // Read only relevant Google/YouTube cookies from store
+            webView.configuration.websiteDataStore.httpCookieStore.getAllCookies { [weak self] cookies in
+                guard let self = self else { return }
 
-                    var cookieDict: [String: String] = [:]
-                    for cookie in cookies {
-                        cookieDict[cookie.name] = cookie.value
-                    }
+                let cookieDict = Credentials(httpCookies: cookies).cookies
 
-                    // Check if authenticated
-                    if cookieDict["SAPISID"] != nil || cookieDict["__Secure-3PAPISID"] != nil || cookieDict["SID"] != nil {
+                // Check if authenticated
+                if cookieDict["SAPISID"] != nil || cookieDict["__Secure-3PAPISID"] != nil || cookieDict["SID"] != nil {
                         // Extract avatar and user name if available
                         let js = """
                         (() => {
@@ -253,7 +252,6 @@ struct WKWebViewContainer: NSViewRepresentable {
                         }
                     }
                 }
-            }
         }
     }
 }
