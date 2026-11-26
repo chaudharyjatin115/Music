@@ -5,6 +5,7 @@ import Darwin
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var notificationObservers: [any NSObjectProtocol] = []
+    private var widgetPollTimer: Timer?
     private var lastProcessedCommandId: String = ""
     private var launchTimestamp: TimeInterval = Date().timeIntervalSince1970
 
@@ -101,8 +102,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         notificationObservers.append(prevObs)
 
         // Fallback poll for sandboxed widget IPC if notifications are dropped.
-        Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
-            Task { @MainActor in
+        widgetPollTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
                 self?.processPendingWidgetCommand()
             }
         }
@@ -131,6 +132,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        widgetPollTimer?.invalidate()
+        widgetPollTimer = nil
         for obs in notificationObservers {
             DistributedNotificationCenter.default().removeObserver(obs)
         }
@@ -140,7 +143,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func configureAllWindows() {
         let theme = AppSettings.shared.theme
         for window in NSApplication.shared.windows {
-            // Target the main application window
             guard window.styleMask.contains(.titled),
                   !(window is NSPanel),
                   window.frame.origin.x > -1000,
@@ -191,16 +193,18 @@ struct MusicApp: App {
     private static func purgeTransientMemory() {
         URLCache.shared.memoryCapacity = 0
         ImageMemoryCache.shared.clear()
+        Task { await SignatureDecipher.shared.purge() }
         malloc_zone_pressure_relief(nil, 0)
     }
 
     @MainActor
     private static func restoreActiveMemory() {
-        URLCache.shared.memoryCapacity = 4 * 1024 * 1024
+        URLCache.shared.memoryCapacity = 2 * 1024 * 1024
     }
 
     init() {
-        URLCache.shared = URLCache(memoryCapacity: 4 * 1024 * 1024, diskCapacity: 200 * 1024 * 1024)
+        setenv("JSC_useJIT", "0", 1)
+        URLCache.shared = URLCache(memoryCapacity: 2 * 1024 * 1024, diskCapacity: 100 * 1024 * 1024)
         Self.setupMemoryManagement()
     }
 
@@ -263,7 +267,6 @@ struct MusicApp: App {
                 .keyboardShortcut(",", modifiers: [.command])
             }
 
-            // Media Controls in macOS Menu Bar
             CommandMenu("Controls") {
                 Button(player.isPlaying ? "Pause" : "Play") {
                     player.togglePlayPause()

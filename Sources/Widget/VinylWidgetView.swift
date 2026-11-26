@@ -29,9 +29,7 @@ public struct VinylWidgetView: View {
         let subtitle = "\(artist) / \(timeString)"
 
         ZStack(alignment: .topTrailing) {
-            // Main Paper Widget Card
             VStack(spacing: 0) {
-                // Top Header Row: Song Title, Subtitle & Vertical Slider
                 HStack(alignment: .top) {
                     VStack(alignment: .leading, spacing: 3) {
                         Text(title)
@@ -73,7 +71,6 @@ public struct VinylWidgetView: View {
 
                 Spacer(minLength: 4)
 
-                // Turntable platter deck, vinyl record & tonearm
                 ZStack(alignment: .topTrailing) {
                     Circle()
                         .strokeBorder(
@@ -108,7 +105,6 @@ public struct VinylWidgetView: View {
 
                 Spacer(minLength: 6)
 
-                // Progress Bar & Duration
                 VStack(spacing: 3) {
                     GeometryReader { geo in
                         let w = geo.size.width
@@ -156,9 +152,7 @@ public struct VinylWidgetView: View {
                 .padding(.horizontal, 22)
                 .padding(.bottom, 6)
 
-                // Bottom Controls & Vinyl Player Badges
                 HStack(spacing: 16) {
-                    // RPM Speed Selector Switch
                     Button {
                         isRPM45.toggle()
                     } label: {
@@ -182,7 +176,6 @@ public struct VinylWidgetView: View {
 
                     Spacer()
 
-                    // Tactile Playback Controls
                     TactilePaperControls(
                         isPlaying: player.isPlaying,
                         isDark: isDark,
@@ -193,7 +186,6 @@ public struct VinylWidgetView: View {
 
                     Spacer()
 
-                    // Like Button
                     if let song = currentSong {
                         Button {
                             Task {
@@ -218,9 +210,7 @@ public struct VinylWidgetView: View {
                 PaperWidgetBackground(isDark: isDark, cornerRadius: 28)
             )
 
-            // Hover Controls: Close, Always on Top, Light/Dark Paper
             HStack(spacing: 8) {
-                // Theme Toggle
                 Button {
                     themeMode = isDark ? 1 : 2
                 } label: {
@@ -233,7 +223,6 @@ public struct VinylWidgetView: View {
                 .buttonStyle(.plain)
                 .help("Toggle Paper Theme (Light/Dark)")
 
-                // Pin Always on Top Toggle
                 Button {
                     alwaysOnTop.toggle()
                     VinylWidgetWindowController.shared.setAlwaysOnTop(alwaysOnTop)
@@ -247,7 +236,6 @@ public struct VinylWidgetView: View {
                 .buttonStyle(.plain)
                 .help(alwaysOnTop ? "Always on Top: Active" : "Always on Top: Inactive")
 
-                // Close Button
                 Button {
                     VinylWidgetWindowController.shared.close()
                 } label: {

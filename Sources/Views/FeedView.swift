@@ -3,10 +3,6 @@ import SwiftUI
 public struct FeedView: View {
     let title: String
     @State private var sections: [FeedSection] = []
-    @State private var historySongs: [Song] = []
-    @State private var savedAlbums: [Album] = []
-    @State private var likedSongs: [Song] = []
-    @State private var followedArtists: [Artist] = []
     @State private var repeatArtists: [Artist] = []
     @State private var repeatSectionTitle: String = "Artists on repeat"
     @State private var displayAlbums: [Album] = []
@@ -55,7 +51,6 @@ public struct FeedView: View {
         let displaySongs = self.displaySongs
         let displayArtists = !repeatArtists.isEmpty ? repeatArtists : self.displayArtists
 
-        // Albums Carousel
         VStack(alignment: .leading, spacing: 14) {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
@@ -67,7 +62,6 @@ public struct FeedView: View {
                 Spacer()
 
                 if displayAlbums.count > 4 {
-                    // < > Pagination Arrows
                     HStack(spacing: 6) {
                         Button {
                             withAnimation(.easeInOut(duration: 0.25)) {
@@ -312,7 +306,12 @@ public struct FeedView: View {
         }
     }
 
-    private func updateDisplayCollections() {
+    private func updateDisplayCollections(
+        historySongs: [Song],
+        savedAlbums: [Album],
+        likedSongs: [Song],
+        followedArtists: [Artist]
+    ) {
         var albums: [Album] = []
         var seenAlbums = Set<String>()
         for song in historySongs {
@@ -444,6 +443,11 @@ public struct FeedView: View {
                 let homeSections = try await InnerTubeService.shared.fetchHomeFeed()
                 self.sections = homeSections
 
+                var historySongs: [Song] = []
+                var savedAlbums: [Album] = []
+                var likedSongs: [Song] = []
+                var followedArtists: [Artist] = []
+
                 if authManager.isLoggedIn {
                     async let historyTask = try? InnerTubeService.shared.fetchListeningHistory()
                     async let albumsTask = try? InnerTubeService.shared.fetchSavedAlbums()
@@ -452,16 +456,21 @@ public struct FeedView: View {
                     async let repeatTask = try? InnerTubeService.shared.fetchArtistsOnRepeat(existingSections: homeSections)
 
                     let (loadedHistory, loadedAlbums, loadedSongs, loadedArtists, loadedRepeat) = await (historyTask, albumsTask, likedSongsTask, artistsTask, repeatTask)
-                    if let h = loadedHistory { self.historySongs = h }
-                    if let a = loadedAlbums { self.savedAlbums = a }
-                    if let s = loadedSongs { self.likedSongs = s }
-                    if let ar = loadedArtists { self.followedArtists = ar }
+                    if let h = loadedHistory { historySongs = h }
+                    if let a = loadedAlbums { savedAlbums = a }
+                    if let s = loadedSongs { likedSongs = s }
+                    if let ar = loadedArtists { followedArtists = ar }
                     if let rep = loadedRepeat {
                         self.repeatSectionTitle = rep.title
                         self.repeatArtists = rep.artists
                     }
                 }
-                updateDisplayCollections()
+                updateDisplayCollections(
+                    historySongs: historySongs,
+                    savedAlbums: savedAlbums,
+                    likedSongs: likedSongs,
+                    followedArtists: followedArtists
+                )
             }
             isLoading = false
         } catch {
@@ -564,7 +573,6 @@ struct MockupSongRow: View {
     var body: some View {
         Button(action: onSelect) {
             HStack(spacing: 12) {
-                // Thumbnail with Red Pause Button Overlay if Active
                 ZStack {
                     CachedAsyncImage(url: URL(string: song.thumbnailSized(for: 100)), targetDimension: 80) { img in
                         img.resizable()
@@ -599,21 +607,18 @@ struct MockupSongRow: View {
                 }
                 .frame(width: 36, height: 36)
 
-                // Song Title
                 Text(song.title)
                     .font(.system(size: 13, weight: (isActiveSelected || isPlaying) ? .bold : .medium))
                     .foregroundStyle((isActiveSelected || isPlaying) ? Color.ytRed : Color.primary)
                     .lineLimit(1)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
-                // Artist Name
                 Text(song.artist)
                     .font(.system(size: 13, weight: (isActiveSelected || isPlaying) ? .medium : .regular))
                     .foregroundStyle((isActiveSelected || isPlaying) ? Color.ytRed : Color.primary)
                     .lineLimit(1)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
-                // Duration Time
                 Text(song.duration > 0 ? song.formattedDuration : "")
                     .font(.system(size: 12.5, weight: (isActiveSelected || isPlaying) ? .semibold : .regular))
                     .foregroundStyle((isActiveSelected || isPlaying) ? Color.ytRed : Color.secondary)

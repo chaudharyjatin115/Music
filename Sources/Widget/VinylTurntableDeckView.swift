@@ -160,7 +160,6 @@ public struct DetailedVinylRecordView: View {
                         .frame(width: diameter * groove.ratio, height: diameter * groove.ratio)
                 }
 
-                // Center album art label
                 ZStack {
                     if let artwork = artwork {
                         Image(nsImage: artwork)
@@ -182,12 +181,10 @@ public struct DetailedVinylRecordView: View {
                         DefaultVinylLabel(diameter: labelDiameter)
                     }
 
-                    // Label Edge Rim
                     Circle()
                         .strokeBorder(Color.white.opacity(0.25), lineWidth: 1.0)
                         .frame(width: labelDiameter, height: labelDiameter)
 
-                    // Spindle Ring (Silver metallic washer)
                     Circle()
                         .fill(
                             LinearGradient(
@@ -208,7 +205,6 @@ public struct DetailedVinylRecordView: View {
                         )
                         .shadow(color: Color.black.opacity(0.3), radius: 1, x: 0, y: 1)
 
-                    // Spindle Center Hole
                     Circle()
                         .fill(Color(red: 0.05, green: 0.05, blue: 0.06))
                         .frame(width: spindleHoleDiameter, height: spindleHoleDiameter)
@@ -583,7 +579,6 @@ public struct TactileVerticalSlider: View {
 
         GeometryReader { geo in
             ZStack(alignment: .bottom) {
-                // Recessed Groove Track
                 Capsule(style: .continuous)
                     .fill(
                         isDark
@@ -592,12 +587,10 @@ public struct TactileVerticalSlider: View {
                     )
                     .frame(width: width, height: height)
                     .overlay(
-                        // Inner Inset Shadow
                         Capsule(style: .continuous)
                             .strokeBorder(Color.black.opacity(0.4), lineWidth: 0.8)
                     )
 
-                // White / Cream Tactile Thumb Knob
                 RoundedRectangle(cornerRadius: 3.5, style: .continuous)
                     .fill(
                         LinearGradient(
@@ -611,7 +604,6 @@ public struct TactileVerticalSlider: View {
                     )
                     .frame(width: width - 2.5, height: thumbHeight)
                     .overlay(
-                        // Grip notch on thumb
                         Capsule()
                             .fill(Color.gray.opacity(0.4))
                             .frame(width: width * 0.45, height: 1.5)
@@ -663,7 +655,6 @@ public struct TactilePaperControls: View {
 
     public var body: some View {
         HStack(spacing: 18) {
-            // Previous Track Button
             Button(action: onPrevious) {
                 Image(systemName: "backward.fill")
                     .font(.system(size: 13, weight: .semibold))
@@ -676,7 +667,6 @@ public struct TactilePaperControls: View {
             }
             .buttonStyle(.plain)
 
-            // Play / Pause Tactile Button
             Button(action: onTogglePlayPause) {
                 ZStack {
                     Circle()
@@ -716,7 +706,6 @@ public struct TactilePaperControls: View {
             }
             .buttonStyle(.plain)
 
-            // Next Track Button
             Button(action: onNext) {
                 Image(systemName: "forward.fill")
                     .font(.system(size: 13, weight: .semibold))

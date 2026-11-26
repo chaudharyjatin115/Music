@@ -389,8 +389,15 @@ final class AudioPlayer: AudioOutput {
         artworkTask = nil
         guard let url, url != loadedArtworkURL else { return }
         loadedArtworkURL = url
+        if let cached = ImageMemoryCache.shared.image(for: url) {
+            let size = cached.size.width > 0 ? cached.size : CGSize(width: 512, height: 512)
+            self.artwork = MPMediaItemArtwork(boundsSize: size) { _ in cached }
+            self.updateNowPlayingInfo()
+            return
+        }
         artworkTask = Task { @MainActor [weak self] in
-            guard let (data, _) = try? await URLSession.shared.data(from: url) else { return }
+            guard let (data, resp) = try? await NetworkSession.shared.data(from: url),
+                  (resp as? HTTPURLResponse)?.statusCode == 200 else { return }
             guard !Task.isCancelled, let self, self.loadedArtworkURL == url else { return }
             let (downscaledData, size) = downscaleArtwork(data: data, maxDimension: 512)
             guard !Task.isCancelled, self.loadedArtworkURL == url else { return }
@@ -417,7 +424,7 @@ final class AudioPlayer: AudioOutput {
     }
 
     private func addPeriodicObserver(to player: AVPlayer) {
-        let interval = CMTime(seconds: 0.05, preferredTimescale: 600)
+        let interval = CMTime(seconds: 0.1, preferredTimescale: 600)
         let observer = player.addPeriodicTimeObserver(
             forInterval: interval,
             queue: .main

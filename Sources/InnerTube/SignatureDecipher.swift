@@ -7,6 +7,7 @@
 import Foundation
 import OSLog
 import JavaScriptCore
+import Darwin
 
 enum DecipherError: LocalizedError {
     case playerURLNotFound
@@ -38,6 +39,11 @@ actor SignatureDecipher {
     }
 
     private var cached: Solver?
+    private var cachedPlayerURL: URL?
+    private var cachedTimestamp: String?
+    private var cachedBaseJS: String?
+    private var evictionTask: Task<Void, Never>?
+    private static let idleEvictionNanoseconds: UInt64 = 20_000_000_000
     private let session = NetworkSession.shared
 
     private let userAgent =
@@ -53,21 +59,64 @@ actor SignatureDecipher {
     // MARK: - Public API
 
     func signatureTimestamp() async throws -> String? {
-        try await solver().signatureTimestamp
+        if let cachedTimestamp { return cachedTimestamp }
+        if let cached { return cached.signatureTimestamp }
+        let js = try await loadBaseJS()
+        let sts = firstMatch(in: js, pattern: #"signatureTimestamp[=:](\d+)"#, group: 1)
+        cachedTimestamp = sts
+        scheduleEviction()
+        return sts
+    }
+
+    func purge() {
+        evictionTask?.cancel()
+        evictionTask = nil
+        if let solver = cached {
+            JSGarbageCollect(solver.context.jsGlobalContextRef)
+        }
+        cached = nil
+        cachedBaseJS = nil
+        malloc_zone_pressure_relief(nil, 0)
+    }
+
+    private func scheduleEviction() {
+        evictionTask?.cancel()
+        evictionTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: Self.idleEvictionNanoseconds)
+            guard !Task.isCancelled else { return }
+            await self?.purge()
+        }
+    }
+
+    private func loadBaseJS() async throws -> String {
+        if let cachedBaseJS { return cachedBaseJS }
+        let playerURL: URL
+        if let existingURL = cachedPlayerURL {
+            playerURL = existingURL
+        } else {
+            playerURL = try await fetchPlayerURL()
+            cachedPlayerURL = playerURL
+            Self.log.note("player JS: \(playerURL.absoluteString)")
+        }
+        let js = try await fetchText(playerURL)
+        cachedBaseJS = js
+        return js
     }
 
     func streamURL(for format: PlayerResponse.Format) async throws -> URL {
-        let solver = try await solver()
-
         if let cipher = format.cipherString {
+            let solver = try await solver()
             Self.log.note("format has signatureCipher - deciphering")
             let url = try decipheredURL(cipher: cipher, solver: solver)
             guard Self.isAllowedStreamURL(url) else { throw DecipherError.malformedStreamURL }
             return url
         }
         if let urlString = format.url, var components = URLComponents(string: urlString) {
-            Self.log.note("format has a direct url - applying n transform only")
-            applyNTransform(to: &components, solver: solver)
+            if components.queryItems?.contains(where: { $0.name == "n" }) == true {
+                let solver = try await solver()
+                Self.log.note("format has a direct url - applying n transform only")
+                applyNTransform(to: &components, solver: solver)
+            }
             guard let url = components.url, Self.isAllowedStreamURL(url) else { throw DecipherError.malformedStreamURL }
             return url
         }
@@ -85,13 +134,19 @@ actor SignatureDecipher {
     // MARK: - Solver setup
 
     private func solver() async throws -> Solver {
-        if let cached { return cached }
+        if let cached {
+            scheduleEviction()
+            return cached
+        }
 
-        let playerURL = try await fetchPlayerURL()
-        Self.log.note("player JS: \(playerURL.absoluteString)")
-        let js = try await fetchText(playerURL)
+        let js = try await loadBaseJS()
+        cachedBaseJS = nil
         let solver = buildSolver(fromBaseJS: js)
+        if let sts = solver.signatureTimestamp {
+            cachedTimestamp = sts
+        }
         cached = solver
+        scheduleEviction()
         return solver
     }
 

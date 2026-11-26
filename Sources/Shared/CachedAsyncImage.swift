@@ -7,8 +7,8 @@ final class ImageMemoryCache: @unchecked Sendable {
     private let cache = NSCache<NSURL, NSImage>()
 
     private init() {
-        cache.countLimit = 100
-        cache.totalCostLimit = 40 * 1024 * 1024
+        cache.countLimit = 60
+        cache.totalCostLimit = 16 * 1024 * 1024
     }
 
     func image(for url: URL) -> NSImage? {
@@ -45,10 +45,38 @@ final class ImageMemoryCache: @unchecked Sendable {
         return nil
     }
 
+    func bitmapCost(of image: NSImage) -> Int {
+        if let rep = image.representations.first, rep.pixelsWide > 0, rep.pixelsHigh > 0 {
+            return rep.pixelsWide * rep.pixelsHigh * 4
+        }
+        return max(1, Int(image.size.width * image.size.height * 4))
+    }
+
     func jpegData(for image: NSImage) -> Data? {
+        if let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) {
+            let rep = NSBitmapImageRep(cgImage: cgImage)
+            return rep.representation(using: .jpeg, properties: [.compressionFactor: 0.85])
+        }
         guard let tiff = image.tiffRepresentation,
               let rep = NSBitmapImageRep(data: tiff) else { return nil }
         return rep.representation(using: .jpeg, properties: [.compressionFactor: 0.85])
+    }
+
+    static nonisolated func downsampleImage(data: Data, maxDimension: CGFloat = 360) -> NSImage? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else {
+            return NSImage(data: data)
+        }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailFromImageIfAbsent: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxDimension
+        ]
+        guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
+            return NSImage(data: data)
+        }
+        return NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
     }
 }
 
@@ -136,16 +164,11 @@ public struct CachedAsyncImage<Content: View, Placeholder: View>: View {
             let targetDim = targetDimension ?? Self.targetDimension(for: url)
             guard let (data, resp) = try? await NetworkSession.shared.data(from: url),
                   (resp as? HTTPURLResponse)?.statusCode == 200,
-                  let img = Self.downsampleImage(data: data, maxDimension: targetDim) else {
+                  let img = ImageMemoryCache.downsampleImage(data: data, maxDimension: targetDim) else {
                 phase = .failure(URLError(.badServerResponse))
                 return
             }
-            let bitmapBytes: Int
-            if let rep = img.representations.first {
-                bitmapBytes = rep.pixelsWide * rep.pixelsHigh * 4
-            } else {
-                bitmapBytes = Int(img.size.width * img.size.height * 4)
-            }
+            let bitmapBytes = ImageMemoryCache.shared.bitmapCost(of: img)
             ImageMemoryCache.shared.insert(img, for: url, cost: max(bitmapBytes, data.count))
             phase = .success(Image(nsImage: img))
         }
@@ -157,33 +180,16 @@ public struct CachedAsyncImage<Content: View, Placeholder: View>: View {
             if let range = urlStr.range(of: prefix) {
                 let digits = urlStr[range.upperBound...].prefix(while: \.isNumber)
                 if let d = Double(digits) {
-                    return d <= 120 ? max(CGFloat(d), 64) : min(CGFloat(d) * 1.5, 768)
+                    return d <= 120 ? max(CGFloat(d), 64) : min(CGFloat(d), 512)
                 }
             }
         }
         if let match = urlStr.range(of: "(\\d+)x(\\d+)", options: .regularExpression) {
             let parts = urlStr[match].split(separator: "x")
             if let first = parts.first, let d = Double(first) {
-                return d <= 120 ? max(CGFloat(d), 64) : min(CGFloat(d) * 1.5, 768)
+                return d <= 120 ? max(CGFloat(d), 64) : min(CGFloat(d), 512)
             }
         }
         return 300
-    }
-
-    private static nonisolated func downsampleImage(data: Data, maxDimension: CGFloat = 360) -> NSImage? {
-        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else {
-            return NSImage(data: data)
-        }
-        let options: [CFString: Any] = [
-            kCGImageSourceCreateThumbnailFromImageAlways: true,
-            kCGImageSourceCreateThumbnailFromImageIfAbsent: true,
-            kCGImageSourceCreateThumbnailWithTransform: true,
-            kCGImageSourceShouldCacheImmediately: true,
-            kCGImageSourceThumbnailMaxPixelSize: maxDimension
-        ]
-        guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
-            return NSImage(data: data)
-        }
-        return NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
     }
 }

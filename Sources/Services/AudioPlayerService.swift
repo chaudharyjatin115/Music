@@ -242,13 +242,6 @@ public final class AudioPlayerService: ObservableObject {
             }
         } else {
             self.queue = []
-            Task {
-                let radioTracks = await InnerTubeService.shared.fetchRadioQueue(videoId: resolvedSong.id)
-                if self.queue.isEmpty && self.currentSong?.id == resolvedSong.id {
-                    self.queue = radioTracks.filter { $0.id != resolvedSong.id }
-                    self.preloadNextTrack()
-                }
-            }
         }
 
         if let current = currentSong {
@@ -275,7 +268,6 @@ public final class AudioPlayerService: ObservableObject {
 
         self.updateNowPlayingInfo()
 
-        // Determine Lossless Audio Status
         if resolvedSong.id.starts(with: "eclipse:") {
             self.isLossless = true
             self.audioQualityTitle = "Lossless 24-bit/48kHz FLAC"
@@ -284,7 +276,6 @@ public final class AudioPlayerService: ObservableObject {
             self.audioQualityTitle = "Native AAC 256kbps"
         }
 
-        // Prefill radio if queue is empty
         if self.queue.isEmpty {
             Task {
                 let radioTracks = await InnerTubeService.shared.fetchRadioQueue(videoId: resolvedSong.id)
@@ -302,11 +293,9 @@ public final class AudioPlayerService: ObservableObject {
             self.updateCurrentLyric(for: self.currentTime)
         }
 
-        // Notify ListenBrainz and Last.fm
         ListenBrainzService.shared.onTrackStart(song: resolvedSong)
         LastfmService.shared.onTrackStart(song: resolvedSong)
 
-        // Check offline local playback (restricted to validated files inside Downloaded folder)
         let localPath: String? = {
             if let path = resolvedSong.localFilePath,
                DownloadManager.shared.isInsideDownloadsDirectory(path),
@@ -349,7 +338,6 @@ public final class AudioPlayerService: ObservableObject {
             }
         }
 
-        // Check if track was preloaded
         if preloadedSongId == resolvedSong.id, let stream = preloadedPlaybackStream {
             preloadedSongId = nil
             preloadedPlaybackStream = nil
@@ -422,14 +410,14 @@ public final class AudioPlayerService: ObservableObject {
         preloadTask?.cancel()
         guard let nextSong = queue.first else { return }
 
-        // Pre-fetch artwork for upcoming song in queue
         if let thumbUrl = URL(string: nextSong.thumbnailUrl.thumbnailSized(for: 500)) {
             if ImageMemoryCache.shared.image(for: thumbUrl) == nil {
                 Task.detached(priority: .utility) {
                     if let (data, resp) = try? await NetworkSession.shared.data(from: thumbUrl),
                        (resp as? HTTPURLResponse)?.statusCode == 200,
-                       let img = NSImage(data: data) {
-                        ImageMemoryCache.shared.insert(img, for: thumbUrl, cost: data.count)
+                       let img = ImageMemoryCache.downsampleImage(data: data, maxDimension: 500) {
+                        let cost = ImageMemoryCache.shared.bitmapCost(of: img)
+                        ImageMemoryCache.shared.insert(img, for: thumbUrl, cost: max(cost, data.count))
                     }
                 }
             }
@@ -848,8 +836,6 @@ public final class AudioPlayerService: ObservableObject {
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nsDict as? [String: Any]
         MPNowPlayingInfoCenter.default().playbackState = isPlaying ? .playing : .paused
 
-        let artworkData = cachedWidgetArtworkData
-
         let snapshot = WidgetPlaybackSnapshot(
             title: song.title,
             artist: song.artist,
@@ -857,10 +843,10 @@ public final class AudioPlayerService: ObservableObject {
             isPlaying: isPlaying,
             duration: max(duration, 0.0),
             currentTime: max(currentTime, 0.0),
-            hasArtwork: artworkData != nil,
+            hasArtwork: cachedWidgetArtworkData != nil,
             volume: volume
         )
-        WidgetBridge.writeState(snapshot, artworkData: artworkData)
+        WidgetBridge.writeState(snapshot, artworkData: songChanged ? cachedWidgetArtworkData : nil)
         WidgetCenter.shared.reloadTimelines(ofKind: "MusicWidget")
     }
 
@@ -891,8 +877,9 @@ public final class AudioPlayerService: ObservableObject {
                         break
                     } else if let (data, resp) = try? await NetworkSession.shared.data(from: thumbUrl),
                               (resp as? HTTPURLResponse)?.statusCode == 200,
-                              let image = NSImage(data: data) {
-                        ImageMemoryCache.shared.insert(image, for: thumbUrl, cost: data.count)
+                              let image = ImageMemoryCache.downsampleImage(data: data, maxDimension: 500) {
+                        let cost = ImageMemoryCache.shared.bitmapCost(of: image)
+                        ImageMemoryCache.shared.insert(image, for: thumbUrl, cost: max(cost, data.count))
                         if let jpeg = ImageMemoryCache.shared.jpegData(for: image) {
                             rawData = jpeg
                             break

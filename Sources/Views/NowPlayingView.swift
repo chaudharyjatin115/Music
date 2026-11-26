@@ -933,31 +933,30 @@ struct AmbientBlurBackgroundView: View, Equatable {
                     let ambientURL = URL(string: thumbUrl.thumbnailSized(for: 100))
                     CachedAsyncImage(url: ambientURL, targetDimension: 64) { phase in
                         if let image = phase.image {
-                            image
-                                .resizable()
-                                .aspectRatio(contentMode: .fill)
-                                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                                .saturation(1.7)
-                                .contrast(1.15)
-                                .blur(radius: 60)
-                                .scaleEffect(1.3)
-                                .opacity(0.75)
-                        }
-                    }
+                            ZStack {
+                                image
+                                    .resizable()
+                                    .aspectRatio(contentMode: .fill)
+                                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                    .saturation(1.7)
+                                    .contrast(1.15)
+                                    .blur(radius: 60)
+                                    .scaleEffect(1.3)
+                                    .opacity(0.75)
 
-                    CachedAsyncImage(url: ambientURL, targetDimension: 64) { phase in
-                        if let image = phase.image {
-                            image
-                                .resizable()
-                                .aspectRatio(contentMode: .fill)
-                                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                                .saturation(1.9)
-                                .contrast(1.1)
-                                .blur(radius: 80)
-                                .scaleEffect(1.6)
-                                .rotationEffect(.degrees(180))
-                                .opacity(0.35)
-                                .blendMode(.screen)
+                                image
+                                    .resizable()
+                                    .aspectRatio(contentMode: .fill)
+                                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                    .saturation(1.9)
+                                    .contrast(1.1)
+                                    .blur(radius: 80)
+                                    .scaleEffect(1.6)
+                                    .rotationEffect(.degrees(180))
+                                    .opacity(0.35)
+                                    .blendMode(.screen)
+                            }
+                            .drawingGroup(opaque: true)
                         }
                     }
                 }

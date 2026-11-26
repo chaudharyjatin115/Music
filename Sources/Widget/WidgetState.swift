@@ -80,7 +80,7 @@ public enum WidgetBridge {
         return dir
     }()
 
-    public static var candidateDirectories: [URL] {
+    public static let candidateDirectories: [URL] = {
         var dirs: [URL] = []
         dirs.append(standardDirectory)
         dirs.append(containerDirectory)
@@ -91,7 +91,7 @@ public enum WidgetBridge {
             }
         }
         return dirs
-    }
+    }()
 
     public static let toggleDarwinNotification = "com.music.app.widget.toggle"
     public static let nextDarwinNotification = "com.music.app.widget.next"
@@ -142,7 +142,9 @@ public enum WidgetBridge {
         var newest: WidgetCommand?
         for dir in candidateDirectories {
             let cmdURL = dir.appendingPathComponent("command.txt")
-            guard let content = try? String(contentsOf: cmdURL, encoding: .utf8) else { continue }
+            var st = stat()
+            guard stat(cmdURL.path, &st) == 0, st.st_size > 0,
+                  let content = try? String(contentsOf: cmdURL, encoding: .utf8) else { continue }
             let parts = content.trimmingCharacters(in: .whitespacesAndNewlines).split(separator: ":")
             if parts.count >= 3, let ts = Double(parts[2]) {
                 let cmd = WidgetCommand(action: String(parts[0]), id: String(parts[1]), timestamp: ts)
