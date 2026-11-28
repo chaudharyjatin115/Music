@@ -391,7 +391,7 @@ final class AudioPlayer: AudioOutput {
         loadedArtworkURL = url
         if let cached = ImageMemoryCache.shared.image(for: url) {
             let size = cached.size.width > 0 ? cached.size : CGSize(width: 512, height: 512)
-            self.artwork = MPMediaItemArtwork(boundsSize: size) { _ in cached }
+            self.artwork = makeMediaArtwork(image: cached, size: size)
             self.updateNowPlayingInfo()
             return
         }
@@ -506,11 +506,12 @@ final class AudioPlayer: AudioOutput {
     }
 }
 
+private nonisolated func makeMediaArtwork(image: NSImage, size: CGSize) -> MPMediaItemArtwork {
+    MPMediaItemArtwork(boundsSize: size) { _ in image }
+}
+
 private nonisolated func makeMediaArtwork(data: Data, size: CGSize) -> MPMediaItemArtwork {
-    let cachedImage = NSImage(data: data) ?? NSImage(size: size)
-    return MPMediaItemArtwork(boundsSize: size) { _ in
-        cachedImage
-    }
+    makeMediaArtwork(image: NSImage(data: data) ?? NSImage(size: size), size: size)
 }
 
 private nonisolated func downscaleArtwork(data: Data, maxDimension: CGFloat = 320) -> (Data, CGSize) {
